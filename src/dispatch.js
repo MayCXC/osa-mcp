@@ -138,14 +138,18 @@ function get(a) {
   const app = Application(a.appId);
   const parent = a.values.parent || [];
   const base = parent.length ? resolve(app, parent) : app;
-  const collection = base[a.pluralMethod];
-  let item;
-  if (a.values.id !== undefined) item = collection.byId(a.values.id);
-  else if (a.values.name !== undefined) item = collection.byName(a.values.name);
-  else item = collection[a.values.index || 0];
-  const obj = {};
-  for (let j = 0; j < a.propMethods.length; j++) {
-    const pm = a.propMethods[j];
+  var item;
+  if (a.isSingleton) {
+    item = base;
+  } else {
+    var collection = base[a.pluralMethod];
+    if (a.values.id !== undefined) item = collection.byId(a.values.id);
+    else if (a.values.name !== undefined) item = collection.byName(a.values.name);
+    else item = collection[a.values.index || 0];
+  }
+  var obj = {};
+  for (var j = 0; j < a.propMethods.length; j++) {
+    var pm = a.propMethods[j];
     if (a.values.properties && a.values.properties.indexOf(pm.name) < 0) continue;
     try { obj[pm.name] = item[pm.method](); } catch(e) { obj[pm.name] = null; }
   }

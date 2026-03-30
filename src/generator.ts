@@ -146,6 +146,7 @@ export function registerClasses(
     const readableProps = cls.properties.filter((p) => p.access !== "w");
     if (readableProps.length === 0) continue;
 
+    const isSingleton = cls.name === "application";
     const plural = cls.plural || `${cls.name}s`;
     const propNames = readableProps.map((p) => p.name);
     const parents = containment.get(cls.name) ?? [];
@@ -155,41 +156,49 @@ export function registerClasses(
 
     const listName = toolName(prefix, `list_${plural}`);
     const getName = toolName(prefix, `get_${cls.name}`);
-    if (registeredTools.has(listName)) continue;
+    if (registeredTools.has(getName)) continue;
 
     const meta = {
       appId,
       pluralMethod: jxaMethodName(plural),
       propMethods: readableProps.map((p) => ({ name: p.name, method: jxaMethodName(p.name) })),
+      ...(isSingleton ? { isSingleton: true } : {}),
     };
 
-    registeredTools.add(listName);
     registeredTools.add(getName);
-    server.addTool({
-      name: listName,
-      description: `[${appName}] List ${plural}.${parentHint}${childHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
-      parameters: z.object({
-        limit: z.number().int().optional().describe("Max items (default 25)"),
-        parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps: 'key'=property, 0=index, []=call, ['arg']=call with args. e.g. ['inbox'] or ['calendars','byName',['US Holidays']]"),
-        properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propNames.join(", ")}`),
-      }),
-      execute: async (args: Record<string, any>) => {
-        try {
-          return await executor.dispatch("list", { ...meta, values: args });
-        } catch (e: any) {
-          return `Error: ${e.message}`;
-        }
-      },
-    });
+
+    if (!isSingleton) {
+      registeredTools.add(listName);
+      server.addTool({
+        name: listName,
+        description: `[${appName}] List ${plural}.${parentHint}${childHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
+        parameters: z.object({
+          limit: z.number().int().optional().describe("Max items (default 25)"),
+          parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps: 'key'=property, 0=index, []=call, ['arg']=call with args. e.g. ['inbox'] or ['calendars','byName',['US Holidays']]"),
+          properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propNames.join(", ")}`),
+        }),
+        execute: async (args: Record<string, any>) => {
+          try {
+            return await executor.dispatch("list", { ...meta, values: args });
+          } catch (e: any) {
+            return `Error: ${e.message}`;
+          }
+        },
+      });
+    }
 
     server.addTool({
       name: getName,
-      description: `[${appName}] Get a ${cls.name} by index or name.${parentHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
+      description: isSingleton
+        ? `[${appName}] Get ${appName} application properties.${childHint} Properties: ${propNames.join(", ")}`.slice(0, 500)
+        : `[${appName}] Get a ${cls.name} by index or name.${parentHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
       parameters: z.object({
-        index: z.number().int().optional().describe("0-based index"),
-        name: z.string().optional().describe("Name to match"),
-        id: z.number().int().optional().describe("ID to match"),
-        parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps"),
+        ...(isSingleton ? {} : {
+          index: z.number().int().optional().describe("0-based index"),
+          name: z.string().optional().describe("Name to match"),
+          id: z.number().int().optional().describe("ID to match"),
+          parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps"),
+        }),
         properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propNames.join(", ")}`),
       }),
       execute: async (args: Record<string, any>) => {
