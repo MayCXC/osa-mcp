@@ -92,15 +92,24 @@ function command(a) {
 }
 
 // Resolve a parent path. Each step is applied sequentially:
-//   "key"          -> obj.key        (property access)
+//   "key"          -> obj.key        (property access, keeps context)
 //   0              -> obj[0]         (index access)
-//   []             -> obj()          (call with no args)
-//   ["a1", "a2"]   -> obj("a1","a2") (call with args)
+//   []             -> obj()          (call previous with no args)
+//   ["a1", "a2"]   -> obj("a1","a2") (call previous with args)
+// Arrays call the PREVIOUS result, so ["calendars", "byName", ["US Holidays"]]
+// becomes obj.calendars, then obj.calendars.byName, then obj.calendars.byName("US Holidays")
+// using the parent as `this` context.
 function resolve(app, path) {
+  let parent = null;
   let obj = app;
   for (const step of path) {
-    if (Array.isArray(step)) obj = obj(...step);
-    else obj = obj[step];
+    if (Array.isArray(step)) {
+      obj = obj.apply(parent, step);
+      parent = null;
+    } else {
+      parent = obj;
+      obj = obj[step];
+    }
   }
   return obj;
 }
