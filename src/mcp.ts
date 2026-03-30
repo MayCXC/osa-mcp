@@ -51,7 +51,15 @@ server.addTool({
 
 async function main(): Promise<void> {
   console.error("[osa-mcp] Loading all scriptable apps...");
-  const raw = await executor.dispatch();
+  let raw: string;
+  try {
+    raw = await executor.dispatch();
+  } catch (e: any) {
+    console.error(`[osa-mcp] Discovery failed: ${e.message}`);
+    console.error("[osa-mcp] Starting with execute tool only.");
+    server.start({ transportType: "stdio" });
+    return;
+  }
   const result = JSON.parse(raw) as {
     apps: Array<{ name: string; bundleId: string | null; sdef: string }>;
     errors: Array<{ name: string; error: string }>;
