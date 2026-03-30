@@ -91,14 +91,13 @@ function command(a) {
   return JSON.stringify(app[a.method]());
 }
 
-// Resolve a parent path. Each step is applied sequentially:
-//   "key"          -> obj.key        (property access, keeps context)
-//   0              -> obj[0]         (index access)
-//   []             -> obj()          (call previous with no args)
-//   ["a1", "a2"]   -> obj("a1","a2") (call previous with args)
-// Arrays call the PREVIOUS result, so ["calendars", "byName", ["US Holidays"]]
-// becomes obj.calendars, then obj.calendars.byName, then obj.calendars.byName("US Holidays")
-// using the parent as `this` context.
+// Resolve a parent path. Each step:
+//   "key"          -> obj.key
+//   0              -> obj[0]
+//   []             -> obj()
+//   ["a1", "a2"]   -> obj("a1","a2")
+// JXA proxy methods need their parent as `this`, so array steps
+// use apply on the previous object.
 function resolve(app, path) {
   let parent = null;
   let obj = app;
