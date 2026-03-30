@@ -23,7 +23,7 @@ import { z } from "zod";
 import { parseSdef } from "./sdef.js";
 import { Executor } from "./executor.js";
 import { registerCommands, registerClasses } from "./generator.js";
-import { DISCOVER_AND_LOAD_JXA, DISCOVER_APPS_JXA } from "./bridge.js";
+import { DISCOVER_AND_LOAD_JXA } from "./bridge.js";
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -76,23 +76,19 @@ server.addTool({
 // --- Discover mode ---
 
 async function discoverAndList(): Promise<void> {
-  console.error("[osa-mcp] Discovering scriptable apps via Launch Services...");
-  const raw = await executor.execute(DISCOVER_APPS_JXA, "jxa");
-  const apps = JSON.parse(raw) as Array<{
-    name: string;
-    bundleId: string | null;
-    sdefName: string | null;
-  }>;
+  console.error("[osa-mcp] Discovering scriptable apps via Launch Services...\n");
+  const raw = await executor.execute(DISCOVER_AND_LOAD_JXA, "jxa");
+  const result = JSON.parse(raw) as {
+    apps: Array<{ name: string; bundleId: string | null; sdef: string }>;
+    errors: Array<{ name: string; error: string }>;
+  };
 
-  const withSdef = apps.filter((a) => a.sdefName);
-  const withoutSdef = apps.filter((a) => !a.sdefName);
-
-  console.error(`\n${apps.length} scriptable apps (${withSdef.length} with sdef):\n`);
-  for (const a of withSdef.sort((a, b) => a.name.localeCompare(b.name))) {
-    console.error(`  ${a.name.padEnd(35)} ${(a.sdefName ?? "").padEnd(35)} ${a.bundleId ?? ""}`);
+  for (const a of result.apps.sort((a, b) => a.name.localeCompare(b.name))) {
+    console.error(`  ${a.name.padEnd(35)} ${a.bundleId ?? ""}`);
   }
-  if (withoutSdef.length > 0) {
-    console.error(`\n${withoutSdef.length} scriptable without sdef (use execute tool)`);
+  console.error(`\n${result.apps.length} apps loaded`);
+  if (result.errors.length > 0) {
+    console.error(`${result.errors.length} failed: ${result.errors.map((e) => e.name).join(", ")}`);
   }
   process.exit(0);
 }
