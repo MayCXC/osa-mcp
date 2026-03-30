@@ -105,6 +105,7 @@ const ARRAY_TAGS = [
   "enumeration", "enumerator", "record-type", "value-type",
   "parameter", "direct-parameter", "result",
   "property", "element", "accessor", "responds-to",
+  "synonym",
 ];
 
 const xmlParser = new XMLParser({
@@ -242,10 +243,38 @@ function parseAccess(v: string | undefined): "r" | "w" | "rw" {
   return "rw";
 }
 
-/** Parse an sdef XML string into structured data. */
+/** Deduplication key from name + code. */
+function dedupKey(name: string, code: string): string {
+  return `${name}\0${code}`;
+}
+
+/** Extract synonyms with names (ignore code-only synonyms per appscript). */
+function parseSynonyms(node: any): Array<{ name: string; code: string; plural?: string }> {
+  const result: Array<{ name: string; code: string; plural?: string }> = [];
+  for (const syn of node.synonym ?? []) {
+    if (!syn) continue;
+    const name = syn["@_name"];
+    if (!name) continue; // code-only synonyms are for decompiling old scripts
+    result.push({
+      name,
+      code: syn["@_code"] ?? node["@_code"] ?? "",
+      plural: syn["@_plural"] || undefined,
+    });
+  }
+  return result;
+}
+
+/** Parse an sdef XML string into structured data.
+ *  Follows appscript's parsing logic: deduplication, synonyms,
+ *  record-type/value-type as classes, command overlap handling. */
 export function parseSdef(xml: string): Sdef {
   const raw = xmlParser.parse(xml.replace(/<!DOCTYPE[^>]*>/i, ""));
   const doc = SdefDocument.parse(raw);
+
+  // Deduplication sets (appscript pattern)
+  const foundCommands = new Map<string, SdefCommand>();
+  const foundClasses = new Set<string>();
+  const foundEnums = new Set<string>();
 
   const commands: SdefCommand[] = [];
   const classes: SdefClass[] = [];
@@ -254,85 +283,173 @@ export function parseSdef(xml: string): Sdef {
   for (const suite of doc.dictionary.suite) {
     const suiteName = suite["@_name"];
 
+    // Commands and events
     for (const cmd of [...suite.command, ...suite.event]) {
       if (cmd["@_hidden"] === "yes") continue;
+      const name = cmd["@_name"];
+      const code = cmd["@_code"];
 
-      const command: SdefCommand = {
-        suite: suiteName,
-        name: cmd["@_name"],
-        code: cmd["@_code"],
-        description: cmd["@_description"],
-        params: cmd.parameter.map((p) => ({
+      // Dedup: same name + same code = last wins; same name + diff code = first wins
+      const existing = foundCommands.get(name);
+      if (existing && existing.code !== code) continue;
+
+      const params: SdefParam[] = [];
+      for (const p of cmd.parameter) {
+        params.push({
           name: p["@_name"],
           code: p["@_code"],
           type: p["@_type"],
           description: p["@_description"],
           optional: p["@_optional"] === "yes",
-        })),
-      };
+        });
+        // Parameter synonyms
+        const paramSeen = new Set<string>();
+        for (const syn of parseSynonyms(p)) {
+          const pk = dedupKey(syn.name, syn.code);
+          if (!paramSeen.has(pk)) {
+            paramSeen.add(pk);
+            params.push({ name: syn.name, code: syn.code, type: p["@_type"], description: p["@_description"], optional: p["@_optional"] === "yes" });
+          }
+        }
+      }
+
+      const command: SdefCommand = { suite: suiteName, name, code, description: cmd["@_description"], params };
 
       const dp = cmd["direct-parameter"][0];
       if (dp) {
-        command.directParam = {
-          type: dp["@_type"],
-          description: dp["@_description"],
-          optional: dp["@_optional"] === "yes",
-        };
+        command.directParam = { type: dp["@_type"], description: dp["@_description"], optional: dp["@_optional"] === "yes" };
       }
 
       const res = cmd.result[0];
       if (res?.["@_type"]) {
-        command.result = {
-          type: res["@_type"],
-          description: res["@_description"],
-        };
+        command.result = { type: res["@_type"], description: res["@_description"] };
       }
 
-      commands.push(command);
+      foundCommands.set(name, command);
+
+      // Command synonyms
+      for (const syn of parseSynonyms(cmd)) {
+        const synExisting = foundCommands.get(syn.name);
+        if (!synExisting || synExisting.code === (syn.code || code)) {
+          foundCommands.set(syn.name, { ...command, name: syn.name, code: syn.code || code });
+        }
+      }
     }
 
-    for (const cls of [...suite["class"], ...suite["class-extension"]]) {
-      if (cls["@_hidden"] === "yes") continue;
+    // Classes, class-extensions, and record-types
+    for (const cls of [...suite["class"], ...suite["class-extension"], ...(suite["record-type"] ?? [])]) {
+      if (!cls || cls["@_hidden"] === "yes") continue;
       const name = cls["@_name"] ?? cls["@_extends"];
       if (!name) continue;
+      const code = cls["@_code"] ?? "";
+      const key = dedupKey(name, code);
 
-      classes.push({
-        suite: suiteName,
-        name,
-        code: cls["@_code"],
-        description: cls["@_description"],
-        inherits: cls["@_inherits"] || undefined,
-        plural: cls["@_plural"] || undefined,
-        properties: cls.property
-          .filter((p) => p["@_hidden"] !== "yes")
-          .map((p) => ({
-            name: p["@_name"],
-            code: p["@_code"],
-            type: p["@_type"],
-            description: p["@_description"],
-            access: parseAccess(p["@_access"]),
+      if (!foundClasses.has(key)) {
+        foundClasses.add(key);
+
+        const properties: SdefProperty[] = [];
+        const classProps = new Set<string>(); // per-class dedup
+        for (const p of cls.property ?? []) {
+          if (p["@_hidden"] === "yes") continue;
+          const propKey = dedupKey(p["@_name"], p["@_code"]);
+          if (!classProps.has(propKey)) {
+            classProps.add(propKey);
+            properties.push({
+              name: p["@_name"], code: p["@_code"], type: p["@_type"],
+              description: p["@_description"], access: parseAccess(p["@_access"]),
+            });
+          }
+          // Property synonyms
+          for (const syn of parseSynonyms(p)) {
+            const synKey = dedupKey(syn.name, syn.code);
+            if (!classProps.has(synKey)) {
+              classProps.add(synKey);
+              properties.push({
+                name: syn.name, code: syn.code, type: p["@_type"],
+                description: p["@_description"], access: parseAccess(p["@_access"]),
+              });
+            }
+          }
+        }
+
+        classes.push({
+          suite: suiteName, name, code,
+          description: cls["@_description"] ?? "",
+          inherits: cls["@_inherits"] || undefined,
+          plural: cls["@_plural"] || undefined,
+          properties,
+          elements: (cls.element ?? []).map((e: any) => ({
+            type: e["@_type"], access: parseAccess(e["@_access"]),
           })),
-        elements: cls.element.map((e) => ({
-          type: e["@_type"],
-          access: parseAccess(e["@_access"]),
-        })),
-      });
+        });
+      }
+
+      // Class synonyms register as additional class entries
+      for (const syn of parseSynonyms(cls)) {
+        const synKey = dedupKey(syn.name, syn.code);
+        if (!foundClasses.has(synKey)) {
+          foundClasses.add(synKey);
+          classes.push({
+            suite: suiteName, name: syn.name, code: syn.code,
+            description: cls["@_description"] ?? "",
+            plural: syn.plural || `${syn.name}s`,
+            properties: [], elements: [],
+          });
+        }
+      }
     }
 
+    // Value-types (treated as class entries, per appscript)
+    for (const vt of suite["value-type"] ?? []) {
+      if (!vt) continue;
+      const name = vt["@_name"];
+      if (!name) continue;
+      const code = vt["@_code"] ?? "";
+      const key = dedupKey(name, code);
+      if (!foundClasses.has(key)) {
+        foundClasses.add(key);
+        classes.push({
+          suite: suiteName, name, code,
+          description: "", properties: [], elements: [],
+        });
+      }
+      for (const syn of parseSynonyms(vt)) {
+        const synKey = dedupKey(syn.name, syn.code);
+        if (!foundClasses.has(synKey)) {
+          foundClasses.add(synKey);
+          classes.push({
+            suite: suiteName, name: syn.name, code: syn.code,
+            description: "", properties: [], elements: [],
+          });
+        }
+      }
+    }
+
+    // Enumerations
     for (const en of suite.enumeration) {
-      enums.push({
-        name: en["@_name"],
-        code: en["@_code"],
-        values: en.enumerator
-          .filter((v) => v["@_hidden"] !== "yes")
-          .map((v) => ({
-            name: v["@_name"],
-            code: v["@_code"],
-            description: v["@_description"],
-          })),
-      });
+      const values: SdefEnumValue[] = [];
+      for (const v of en.enumerator) {
+        if (v["@_hidden"] === "yes") continue;
+        const vKey = dedupKey(v["@_name"], v["@_code"]);
+        if (!foundEnums.has(vKey)) {
+          foundEnums.add(vKey);
+          values.push({ name: v["@_name"], code: v["@_code"], description: v["@_description"] });
+        }
+        // Enumerator synonyms
+        for (const syn of parseSynonyms(v)) {
+          const synKey = dedupKey(syn.name, syn.code);
+          if (!foundEnums.has(synKey)) {
+            foundEnums.add(synKey);
+            values.push({ name: syn.name, code: syn.code, description: v["@_description"] });
+          }
+        }
+      }
+      enums.push({ name: en["@_name"], code: en["@_code"], values });
     }
   }
+
+  // Convert command map to array
+  commands.push(...foundCommands.values());
 
   return { title: doc.dictionary["@_title"], commands, classes, enums };
 }
