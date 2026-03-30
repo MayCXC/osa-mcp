@@ -22,13 +22,17 @@ interface ExecResult {
   exitCode: number;
 }
 
-// Track all child processes so we can kill them on exit.
+// Track child processes. Kill them when the MCP client disconnects
+// (stdin closes) or the process receives a signal.
 const children = new Set<import("node:child_process").ChildProcess>();
-for (const sig of ["exit", "SIGTERM", "SIGINT"] as const) {
-  process.on(sig, () => {
-    for (const child of children) child.kill("SIGKILL");
-  });
+function killChildren() {
+  for (const child of children) child.kill("SIGKILL");
 }
+process.on("exit", killChildren);
+process.on("SIGTERM", killChildren);
+process.on("SIGINT", killChildren);
+process.stdin.on("end", killChildren);
+process.stdin.on("close", killChildren);
 
 function runProcess(cmd: string, args: string[], stdin?: string): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
