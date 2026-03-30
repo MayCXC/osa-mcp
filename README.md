@@ -65,28 +65,26 @@ bun link
 
 ## How it works
 
-1. **Discovery** (`dispatch.js`): A single JXA script runs on the macOS host via `osascript`. With no arguments, it uses `NSMetadataQuery` to find all `.app` bundles with `OSAScriptingDefinition` in their Info.plist, loads each sdef via `NSXMLDocument` with XInclude resolution, and loads `intrinsics.sdef` from the ScriptingBridge framework. Returns everything as one JSON payload.
+1. **Discovery**: A JXA script runs on the macOS host via `osascript`. It uses `NSMetadataQuery` to find all app bundles with scripting definitions, loads each sdef via `NSXMLDocument` with XInclude resolution, and loads `intrinsics.sdef` from the ScriptingBridge framework.
 
-2. **Parsing** (`sdef.ts`): Parses the sdef XML using fast-xml-parser with Zod validation (acts as a runtime DTD). Handles synonyms, class-extensions, record-types, value-types, command deduplication (same name + same code = last wins, same name + different code = first wins), and per-class property dedup. The `application` class is separated as root properties, not a collection.
+2. **Parsing**: Sdef XML is parsed with Zod validation acting as a runtime DTD. Handles synonyms, class-extensions, record-types, value-types, and command deduplication following appscript's rules. The application class is separated as root properties, not a collection.
 
-3. **Generation** (`generator.ts`): Converts parsed sdef into FastMCP tool registrations. Each tool calls `executor.dispatch()` with an operation name and metadata payload. No JXA code is generated. Type mapping uses intrinsics for number/boolean/string/array resolution, enums become Zod enums, class references become described strings.
+3. **Generation**: Parsed sdef is converted into FastMCP tool registrations. Type mapping uses intrinsics for number/boolean/string/array resolution, enums become Zod enums, class references become described strings.
 
-4. **Execution** (`executor.ts`): Calls dispatch.js locally or via SSH. All data is base64-encoded and passed as argv. The JXA script is imported as text at build time for remote piping. Child processes are tracked and killed on stdin close or signal.
+4. **Execution**: Calls the JXA dispatch script locally or via SSH. Child processes are tracked and cleaned up on disconnect.
 
-5. **Dispatch** (`dispatch.js`): Handles `command`, `list`, `get`, and `execute` operations. Commands call JXA methods with named arguments. List/get use structured path resolution for parent navigation (`"key"` = property, `0` = index, `[]` = call, `["arg"]` = call with args). Execute supports both JXA (via eval) and AppleScript (via NSAppleScript).
+5. **Dispatch**: Handles `command`, `list`, `get`, and `execute` operations. List/get support structured path resolution for navigating the object hierarchy. Execute supports both JXA and AppleScript.
 
 ## Architecture
 
 ```
-Claude Code <--stdio--> mcp.ts <--spawn/ssh--> osascript dispatch.js
-                          |
-                     sdef.ts (parse)
-                     generator.ts (register tools)
-                     executor.ts (base64 argv, process lifecycle)
+MCP client <--stdio--> mcp.ts <--spawn/ssh--> osascript dispatch.js
+                         |
+                    sdef.ts (parse)
+                    generator.ts (register tools)
+                    executor.ts (process lifecycle)
 ```
-
-All user data flows through base64-encoded argv. No string interpolation into scripts.
 
 ## License
 
-MIT
+BSD 3-Clause. See [LICENSE](LICENSE).
