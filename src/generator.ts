@@ -29,7 +29,7 @@ function sdefTypeToZod(type: string): z.ZodTypeAny {
     case "location specifier":
       return z.string().describe("object specifier");
     case "record":
-      return z.record(z.unknown());
+      return z.string().describe("JSON object as string");
     case "date":
       return z.string().describe("date string");
     case "list":
