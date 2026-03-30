@@ -1,12 +1,107 @@
 /**
- * sdef.ts: Parse Apple Scripting Definition (sdef) XML into structured data.
+ * sdef.ts: Parse Apple Scripting Definition (sdef) XML via Zod schema.
  *
- * sdef files describe an app's scriptable API: suites, commands, classes,
- * properties, parameters, enumerations. This parser extracts what we need
- * to generate MCP tools.
+ * The Zod schema mirrors the sdef.dtd structure. fast-xml-parser produces
+ * raw JSON, Zod validates and types it in one pass.
  */
 
+import { z } from "zod";
 import { XMLParser } from "fast-xml-parser";
+
+/** Ensure a value is an array (fast-xml-parser returns single items as objects). */
+function asArray<T>(v: T | T[] | undefined): T[] {
+  if (!v) return [];
+  return Array.isArray(v) ? v : [v];
+}
+
+// --- Zod schema matching sdef.dtd ---
+
+const Enumerator = z.object({
+  "@_name": z.string(),
+  "@_code": z.string().default(""),
+  "@_description": z.string().default(""),
+  "@_hidden": z.string().optional(),
+});
+
+const Enumeration = z.object({
+  "@_name": z.string(),
+  "@_code": z.string().default(""),
+  enumerator: z.union([z.array(Enumerator), Enumerator]).optional(),
+});
+
+const DirectParameter = z.object({
+  "@_type": z.string().optional(),
+  "@_description": z.string().default(""),
+  "@_optional": z.string().optional(),
+  "@_requires-access": z.string().optional(),
+});
+
+const Parameter = z.object({
+  "@_name": z.string(),
+  "@_code": z.string().default(""),
+  "@_type": z.string().default("text"),
+  "@_description": z.string().default(""),
+  "@_optional": z.string().optional(),
+});
+
+const Property = z.object({
+  "@_name": z.string(),
+  "@_code": z.string().default(""),
+  "@_type": z.string().default("text"),
+  "@_description": z.string().default(""),
+  "@_access": z.string().optional(),
+  "@_hidden": z.string().optional(),
+});
+
+const Element = z.object({
+  "@_type": z.string(),
+  "@_access": z.string().optional(),
+});
+
+const Result = z.object({
+  "@_type": z.string().optional(),
+  "@_description": z.string().default(""),
+}).optional();
+
+const Command = z.object({
+  "@_name": z.string(),
+  "@_code": z.string().default(""),
+  "@_description": z.string().default(""),
+  "@_hidden": z.string().optional(),
+  "direct-parameter": z.union([z.array(DirectParameter), DirectParameter]).optional(),
+  parameter: z.union([z.array(Parameter), Parameter]).optional(),
+  result: z.union([z.array(Result), Result]).optional(),
+});
+
+const SdefClass = z.object({
+  "@_name": z.string(),
+  "@_code": z.string().default(""),
+  "@_description": z.string().default(""),
+  "@_inherits": z.string().optional(),
+  "@_plural": z.string().optional(),
+  "@_hidden": z.string().optional(),
+  property: z.union([z.array(Property), Property]).optional(),
+  element: z.union([z.array(Element), Element]).optional(),
+  "responds-to": z.any().optional(),
+  contents: z.any().optional(),
+});
+
+const Suite = z.object({
+  "@_name": z.string(),
+  "@_code": z.string().default(""),
+  "@_description": z.string().default(""),
+}).passthrough();
+
+const Dictionary = z.object({
+  "@_title": z.string().default(""),
+  suite: z.union([z.array(Suite), Suite]),
+});
+
+const SdefDocument = z.object({
+  dictionary: Dictionary,
+}).passthrough();
+
+// --- Exported types (flattened for generator use) ---
 
 export interface SdefParam {
   name: string;
@@ -23,6 +118,7 @@ export interface SdefCommand {
   description: string;
   directParam?: { type: string; description: string; optional: boolean };
   params: SdefParam[];
+  result?: { type: string; description: string };
 }
 
 export interface SdefProperty {
@@ -68,12 +164,6 @@ export interface Sdef {
   enums: SdefEnum[];
 }
 
-/** Ensure a value is an array (fast-xml-parser returns single items as objects). */
-function asArray<T>(v: T | T[] | undefined): T[] {
-  if (!v) return [];
-  return Array.isArray(v) ? v : [v];
-}
-
 function parseAccess(v: string | undefined): "r" | "w" | "rw" {
   if (v === "r") return "r";
   if (v === "w") return "w";
@@ -86,62 +176,74 @@ export function parseSdef(xml: string): Sdef {
     ignoreAttributes: false,
     attributeNamePrefix: "@_",
     allowBooleanAttributes: true,
-    isArray: (tagName) =>
-      ["suite", "command", "class", "property", "element", "parameter",
-       "enumeration", "enumerator", "direct-parameter"].includes(tagName),
   });
 
-  const doc = parser.parse(xml);
+  const raw = parser.parse(xml.replace(/<!DOCTYPE[^>]*>/i, ""));
+  const doc = SdefDocument.parse(raw);
   const dict = doc.dictionary;
 
-  const title = dict?.["@_title"] ?? "";
   const commands: SdefCommand[] = [];
   const classes: SdefClass[] = [];
   const enums: SdefEnum[] = [];
 
-  for (const suite of asArray(dict?.suite)) {
-    const suiteName = suite["@_name"] ?? "";
+  for (const suite of asArray(dict.suite as any)) {
+    const suiteName = suite["@_name"];
 
-    for (const cmd of asArray(suite.command)) {
+    // Commands and events (same structure)
+    for (const cmd of [...asArray(suite.command as any), ...asArray(suite.event as any)]) {
       if (cmd["@_hidden"] === "yes") continue;
 
       const command: SdefCommand = {
         suite: suiteName,
-        name: cmd["@_name"] ?? "",
-        code: cmd["@_code"] ?? "",
-        description: cmd["@_description"] ?? "",
+        name: cmd["@_name"],
+        code: cmd["@_code"],
+        description: cmd["@_description"],
         params: [],
       };
 
       for (const dp of asArray(cmd["direct-parameter"])) {
-        command.directParam = {
-          type: dp["@_type"] ?? "specifier",
-          description: dp["@_description"] ?? "",
-          optional: dp["@_optional"] === "yes",
-        };
+        if (dp) {
+          command.directParam = {
+            type: dp["@_type"] ?? "specifier",
+            description: dp["@_description"] ?? "",
+            optional: dp["@_optional"] === "yes",
+          };
+        }
       }
 
       for (const p of asArray(cmd.parameter)) {
-        command.params.push({
-          name: p["@_name"] ?? "",
-          code: p["@_code"] ?? "",
-          type: p["@_type"] ?? "text",
-          description: p["@_description"] ?? "",
-          optional: p["@_optional"] === "yes",
-        });
+        if (p) {
+          command.params.push({
+            name: p["@_name"],
+            code: p["@_code"],
+            type: p["@_type"],
+            description: p["@_description"],
+            optional: p["@_optional"] === "yes",
+          });
+        }
+      }
+
+      for (const r of asArray(cmd.result)) {
+        if (r?.["@_type"]) {
+          command.result = {
+            type: r["@_type"],
+            description: r["@_description"] ?? "",
+          };
+        }
       }
 
       commands.push(command);
     }
 
-    for (const cls of asArray(suite["class"])) {
+    // Classes and class-extensions
+    for (const cls of [...asArray(suite["class"] as any), ...asArray(suite["class-extension"] as any)]) {
       if (cls["@_hidden"] === "yes") continue;
 
       const klass: SdefClass = {
         suite: suiteName,
-        name: cls["@_name"] ?? "",
-        code: cls["@_code"] ?? "",
-        description: cls["@_description"] ?? "",
+        name: cls["@_name"],
+        code: cls["@_code"],
+        description: cls["@_description"],
         inherits: cls["@_inherits"] || undefined,
         plural: cls["@_plural"] || undefined,
         properties: [],
@@ -149,42 +251,48 @@ export function parseSdef(xml: string): Sdef {
       };
 
       for (const p of asArray(cls.property)) {
-        if (p["@_hidden"] === "yes") continue;
-        klass.properties.push({
-          name: p["@_name"] ?? "",
-          code: p["@_code"] ?? "",
-          type: p["@_type"] ?? "text",
-          description: p["@_description"] ?? "",
-          access: parseAccess(p["@_access"]),
-        });
+        if (p && p["@_hidden"] !== "yes") {
+          klass.properties.push({
+            name: p["@_name"],
+            code: p["@_code"],
+            type: p["@_type"],
+            description: p["@_description"],
+            access: parseAccess(p["@_access"]),
+          });
+        }
       }
 
       for (const e of asArray(cls.element)) {
-        klass.elements.push({
-          type: e["@_type"] ?? "",
-          access: parseAccess(e["@_access"]),
-        });
+        if (e) {
+          klass.elements.push({
+            type: e["@_type"],
+            access: parseAccess(e["@_access"]),
+          });
+        }
       }
 
       classes.push(klass);
     }
 
-    for (const en of asArray(suite.enumeration)) {
+    // Enumerations
+    for (const en of asArray(suite.enumeration as any)) {
       const values: SdefEnumValue[] = [];
       for (const v of asArray(en.enumerator)) {
-        values.push({
-          name: v["@_name"] ?? "",
-          code: v["@_code"] ?? "",
-          description: v["@_description"] ?? "",
-        });
+        if (v && v["@_hidden"] !== "yes") {
+          values.push({
+            name: v["@_name"],
+            code: v["@_code"],
+            description: v["@_description"],
+          });
+        }
       }
       enums.push({
-        name: en["@_name"] ?? "",
-        code: en["@_code"] ?? "",
+        name: en["@_name"],
+        code: en["@_code"],
         values,
       });
     }
   }
 
-  return { title, commands, classes, enums };
+  return { title: dict["@_title"], commands, classes, enums };
 }
