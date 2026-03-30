@@ -42,7 +42,7 @@ server.addTool({
   }),
   execute: async (args) => {
     try {
-      return await executor.execute(args.code, args.language ?? "jxa");
+      return await executor.dispatch("execute", { code: args.code, language: args.language ?? "jxa" });
     } catch (e: any) {
       return `Error: ${e.message}`;
     }

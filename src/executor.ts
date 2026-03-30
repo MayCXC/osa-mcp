@@ -10,8 +10,6 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 
-export type Language = "applescript" | "jxa";
-
 export interface ExecutorOptions {
   sshHost?: string;
 }
@@ -92,8 +90,4 @@ export class Executor {
     return result.stdout;
   }
 
-  /** Run arbitrary AppleScript or JXA. Routes through dispatch.js. */
-  async execute(code: string, language: Language = "jxa"): Promise<string> {
-    return this.dispatch("execute", { code, language });
-  }
 }
