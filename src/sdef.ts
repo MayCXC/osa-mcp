@@ -187,6 +187,11 @@ export interface Sdef {
   commands: SdefCommand[];
   classes: SdefClass[];
   enums: SdefEnum[];
+  /** Root application properties (from the sdef application class). */
+  application: {
+    properties: SdefProperty[];
+    elements: SdefElement[];
+  };
 }
 
 /** A base type from ScriptingBridge intrinsics.sdef */
@@ -470,9 +475,15 @@ export function parseSdef(xml: string): Sdef {
     }
   }
 
-  // Convert maps to arrays
+  // Convert maps to arrays, separating the application class
   commands.push(...foundCommands.values());
+  const appClass = foundClasses.get("application");
+  foundClasses.delete("application");
   const classes = [...foundClasses.values()];
+  const application = {
+    properties: appClass?.properties ?? [],
+    elements: appClass?.elements ?? [],
+  };
 
-  return { title: doc.dictionary["@_title"], commands, classes, enums };
+  return { title: doc.dictionary["@_title"], commands, classes, enums, application };
 }

@@ -141,12 +141,43 @@ export function registerClasses(
   const containment = buildContainment(sdef);
   const skip = new Set(["rich text", "paragraph", "word", "character", "attribute run", "attachment"]);
 
+  // Register root application properties tool
+  const appProps = sdef.application.properties.filter((p) => p.access !== "w");
+  if (appProps.length > 0) {
+    const appToolName = toolName(prefix, "get_application");
+    if (!registeredTools.has(appToolName)) {
+      const appPropNames = appProps.map((p) => p.name);
+      const appChildren = sdef.application.elements.map((e) => e.type);
+      const childHint = appChildren.length > 0 ? ` Contains: ${appChildren.join(", ")}.` : "";
+      const appMeta = {
+        appId,
+        isSingleton: true,
+        propMethods: appProps.map((p) => ({ name: p.name, method: jxaMethodName(p.name) })),
+      };
+      registeredTools.add(appToolName);
+      server.addTool({
+        name: appToolName,
+        description: `[${appName}] Get ${appName} application properties.${childHint} Properties: ${appPropNames.join(", ")}`.slice(0, 500),
+        parameters: z.object({
+          properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${appPropNames.join(", ")}`),
+        }),
+        execute: async (args: Record<string, any>) => {
+          try {
+            return await executor.dispatch("get", { ...appMeta, values: args });
+          } catch (e: any) {
+            return `Error: ${e.message}`;
+          }
+        },
+      });
+    }
+  }
+
+  // Register collection classes (list + get tools)
   for (const cls of sdef.classes) {
     if (skip.has(cls.name)) continue;
     const readableProps = cls.properties.filter((p) => p.access !== "w");
     if (readableProps.length === 0) continue;
 
-    const isSingleton = cls.name === "application";
     const plural = cls.plural || `${cls.name}s`;
     const propNames = readableProps.map((p) => p.name);
     const parents = containment.get(cls.name) ?? [];
@@ -156,49 +187,41 @@ export function registerClasses(
 
     const listName = toolName(prefix, `list_${plural}`);
     const getName = toolName(prefix, `get_${cls.name}`);
-    if (registeredTools.has(getName)) continue;
+    if (registeredTools.has(listName)) continue;
 
     const meta = {
       appId,
       pluralMethod: jxaMethodName(plural),
       propMethods: readableProps.map((p) => ({ name: p.name, method: jxaMethodName(p.name) })),
-      ...(isSingleton ? { isSingleton: true } : {}),
     };
 
+    registeredTools.add(listName);
     registeredTools.add(getName);
-
-    if (!isSingleton) {
-      registeredTools.add(listName);
-      server.addTool({
-        name: listName,
-        description: `[${appName}] List ${plural}.${parentHint}${childHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
-        parameters: z.object({
-          limit: z.number().int().optional().describe("Max items (default 25)"),
-          parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps: 'key'=property, 0=index, []=call, ['arg']=call with args. e.g. ['inbox'] or ['calendars','byName',['US Holidays']]"),
-          properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propNames.join(", ")}`),
-        }),
-        execute: async (args: Record<string, any>) => {
-          try {
-            return await executor.dispatch("list", { ...meta, values: args });
-          } catch (e: any) {
-            return `Error: ${e.message}`;
-          }
-        },
-      });
-    }
+    server.addTool({
+      name: listName,
+      description: `[${appName}] List ${plural}.${parentHint}${childHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
+      parameters: z.object({
+        limit: z.number().int().optional().describe("Max items (default 25)"),
+        parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps: 'key'=property, 0=index, []=call, ['arg']=call with args. e.g. ['inbox'] or ['calendars','byName',['US Holidays']]"),
+        properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propNames.join(", ")}`),
+      }),
+      execute: async (args: Record<string, any>) => {
+        try {
+          return await executor.dispatch("list", { ...meta, values: args });
+        } catch (e: any) {
+          return `Error: ${e.message}`;
+        }
+      },
+    });
 
     server.addTool({
       name: getName,
-      description: isSingleton
-        ? `[${appName}] Get ${appName} application properties.${childHint} Properties: ${propNames.join(", ")}`.slice(0, 500)
-        : `[${appName}] Get a ${cls.name} by index or name.${parentHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
+      description: `[${appName}] Get a ${cls.name} by index or name.${parentHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
       parameters: z.object({
-        ...(isSingleton ? {} : {
-          index: z.number().int().optional().describe("0-based index"),
-          name: z.string().optional().describe("Name to match"),
-          id: z.number().int().optional().describe("ID to match"),
-          parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps"),
-        }),
+        index: z.number().int().optional().describe("0-based index"),
+        name: z.string().optional().describe("Name to match"),
+        id: z.number().int().optional().describe("ID to match"),
+        parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps"),
         properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propNames.join(", ")}`),
       }),
       execute: async (args: Record<string, any>) => {
