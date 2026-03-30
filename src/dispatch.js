@@ -6,17 +6,17 @@ ObjC.import("Foundation");
 ObjC.import("AppKit");
 
 function decode(b64) {
-  var d = $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
+  const d = $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
   return JSON.parse($.NSString.alloc.initWithDataEncoding(d, 4).js);
 }
 
 function decodeStr(b64) {
-  var d = $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
+  const d = $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
   return $.NSString.alloc.initWithDataEncoding(d, 4).js;
 }
 
 function discover() {
-  var query = $.NSMetadataQuery.alloc.init;
+  const query = $.NSMetadataQuery.alloc.init;
   query.setPredicate(
     $.NSPredicate.predicateWithFormat(
       'kMDItemContentType == "com.apple.application-bundle"'
@@ -28,35 +28,35 @@ function discover() {
   );
   query.stopQuery;
 
-  var apps = [];
-  var errors = [];
-  for (var i = 0; i < query.resultCount; i++) {
-    var item = query.resultAtIndex(i);
-    var path = item.valueForAttribute("kMDItemPath");
+  const apps = [];
+  const errors = [];
+  for (let i = 0; i < query.resultCount; i++) {
+    const item = query.resultAtIndex(i);
+    const path = item.valueForAttribute("kMDItemPath");
     if (!path) continue;
-    var bundle = $.NSBundle.bundleWithPath(path);
+    const bundle = $.NSBundle.bundleWithPath(path);
     if (!bundle || !bundle.infoDictionary) continue;
-    var sdefObj = bundle.infoDictionary.objectForKey("OSAScriptingDefinition");
+    const sdefObj = bundle.infoDictionary.objectForKey("OSAScriptingDefinition");
     if (!sdefObj) continue;
 
-    var displayName = item.valueForAttribute("kMDItemDisplayName");
-    var name = displayName ? displayName.js.replace(/\.app$/, "") : "unknown";
-    var bundleId = bundle.bundleIdentifier ? bundle.bundleIdentifier.js : null;
-    var sn;
+    const displayName = item.valueForAttribute("kMDItemDisplayName");
+    const name = displayName ? displayName.js.replace(/\.app$/, "") : "unknown";
+    const bundleId = bundle.bundleIdentifier ? bundle.bundleIdentifier.js : null;
+    let sn;
     try { sn = sdefObj.js; } catch(e) { sn = "" + sdefObj; }
     if (!sn || typeof sn !== "string") continue;
     if (sn.indexOf(".") < 0) sn = sn + ".sdef";
 
-    var url = $.NSURL.fileURLWithPath(path.js + "/Contents/Resources/" + sn);
-    var error = $();
-    var xmlDoc = $.NSXMLDocument.alloc.initWithContentsOfURLOptionsError(
+    const url = $.NSURL.fileURLWithPath(path.js + "/Contents/Resources/" + sn);
+    const error = $();
+    const xmlDoc = $.NSXMLDocument.alloc.initWithContentsOfURLOptionsError(
       url, $.NSXMLDocumentXInclude, error
     );
     if (!xmlDoc || error[0]) {
       errors.push({ name: name, error: error[0] ? "" + error[0].localizedDescription : "load failed" });
       continue;
     }
-    var xml = xmlDoc.XMLString;
+    const xml = xmlDoc.XMLString;
     if (!xml) {
       errors.push({ name: name, error: "XMLString nil" });
       continue;
@@ -67,13 +67,13 @@ function discover() {
 }
 
 function command(a) {
-  var app = Application(a.appId);
-  var namedArgs = {};
-  for (var i = 0; i < a.paramKeys.length; i++) {
-    var pk = a.paramKeys[i];
+  const app = Application(a.appId);
+  const namedArgs = {};
+  for (let i = 0; i < a.paramKeys.length; i++) {
+    const pk = a.paramKeys[i];
     if (a.values[pk.argKey] !== undefined) namedArgs[pk.jxaKey] = a.values[pk.argKey];
   }
-  var hasNamed = Object.keys(namedArgs).length > 0;
+  const hasNamed = Object.keys(namedArgs).length > 0;
   if (a.hasDirectParam && a.values.target !== undefined) {
     return JSON.stringify(hasNamed ? app[a.method](a.values.target, namedArgs) : app[a.method](a.values.target));
   }
@@ -82,17 +82,17 @@ function command(a) {
 }
 
 function list(a) {
-  var app = Application(a.appId);
-  var limit = a.values.limit || 25;
-  var parent = a.values.parent || "";
-  var container = parent ? eval("app." + parent)[a.pluralMethod]() : app[a.pluralMethod]();
-  var count = Math.min(container.length, limit);
-  var result = [];
-  for (var i = 0; i < count; i++) {
-    var item = container[i];
-    var obj = { _index: i };
-    for (var j = 0; j < a.propMethods.length; j++) {
-      var pm = a.propMethods[j];
+  const app = Application(a.appId);
+  const limit = a.values.limit || 25;
+  const parent = a.values.parent || "";
+  const container = parent ? eval("app." + parent)[a.pluralMethod]() : app[a.pluralMethod]();
+  const count = Math.min(container.length, limit);
+  const result = [];
+  for (let i = 0; i < count; i++) {
+    let item = container[i];
+    let obj = { _index: i };
+    for (let j = 0; j < a.propMethods.length; j++) {
+      const pm = a.propMethods[j];
       if (a.values.properties && a.values.properties.indexOf(pm.name) < 0) continue;
       try { obj[pm.name] = item[pm.method](); } catch(e) { obj[pm.name] = null; }
     }
@@ -102,16 +102,16 @@ function list(a) {
 }
 
 function get(a) {
-  var app = Application(a.appId);
-  var parent = a.values.parent || "";
-  var base = parent ? eval("app." + parent)[a.pluralMethod] : app[a.pluralMethod];
-  var item;
+  const app = Application(a.appId);
+  const parent = a.values.parent || "";
+  const base = parent ? eval("app." + parent)[a.pluralMethod] : app[a.pluralMethod];
+  let item;
   if (a.values.id !== undefined) item = base.byId(a.values.id);
   else if (a.values.name !== undefined) item = base.byName(a.values.name);
   else item = base[a.values.index || 0];
-  var obj = {};
-  for (var j = 0; j < a.propMethods.length; j++) {
-    var pm = a.propMethods[j];
+  const obj = {};
+  for (let j = 0; j < a.propMethods.length; j++) {
+    const pm = a.propMethods[j];
     if (a.values.properties && a.values.properties.indexOf(pm.name) < 0) continue;
     try { obj[pm.name] = item[pm.method](); } catch(e) { obj[pm.name] = null; }
   }
@@ -120,7 +120,7 @@ function get(a) {
 
 function run(argv) {
   if (!argv.length) return discover();
-  var op = decodeStr(argv[0]);
+  const op = decodeStr(argv[0]);
   switch (op) {
     case "command":  return command(decode(argv[1]));
     case "list":     return list(decode(argv[1]));
