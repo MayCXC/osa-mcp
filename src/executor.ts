@@ -74,14 +74,23 @@ export class Executor {
     return !!this.sshHost;
   }
 
-  /** Execute a script string. */
-  async execute(code: string, language: Language = "jxa"): Promise<string> {
+  /** Execute a script string. Optionally pass data as a JSON payload
+   *  accessible as `__args` in the JXA code. Data is embedded as a
+   *  string literal, never interpolated into code. */
+  async execute(code: string, language: Language = "jxa", data?: unknown): Promise<string> {
     const langFlag = language === "jxa" ? "JavaScript" : "AppleScript";
 
-    if (this.isRemote) {
-      return this.executeRemote(code, langFlag);
+    let fullCode = code;
+    if (data !== undefined) {
+      // Embed data as a JSON.parse of a string literal.
+      // JSON.stringify produces a safely escaped JS string literal.
+      fullCode = `var __args = JSON.parse(${JSON.stringify(JSON.stringify(data))});\n${code}`;
     }
-    return this.executeLocal(code, langFlag);
+
+    if (this.isRemote) {
+      return this.executeRemote(fullCode, langFlag);
+    }
+    return this.executeLocal(fullCode, langFlag);
   }
 
   /** Read a file from the macOS host. */
@@ -120,11 +129,7 @@ export class Executor {
     return result.stdout;
   }
 
-  private async executeLocal(
-    code: string,
-    langFlag: string
-  ): Promise<string> {
-    // Write to temp file to avoid arg length limits and quoting issues
+  private async executeLocal(code: string, langFlag: string): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "osa-"));
     const ext = langFlag === "JavaScript" ? ".js" : ".scpt";
     const path = join(dir, `script${ext}`);
@@ -145,11 +150,7 @@ export class Executor {
     }
   }
 
-  private async executeRemote(
-    code: string,
-    langFlag: string
-  ): Promise<string> {
-    // Pipe the script via stdin to avoid temp file management over SSH
+  private async executeRemote(code: string, langFlag: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const proc = spawn(
         "ssh",
@@ -173,10 +174,10 @@ export class Executor {
         reject(new Error(`Remote execution timed out after ${this.timeout}ms`));
       }, this.timeout);
 
-      proc.on("close", (code) => {
+      proc.on("close", (exitCode) => {
         clearTimeout(timer);
-        if (code !== 0) {
-          reject(new Error(stderr || `osascript exited with code ${code}`));
+        if (exitCode !== 0) {
+          reject(new Error(stderr || `osascript exited with code ${exitCode}`));
         } else {
           resolve(stdout.trimEnd());
         }
