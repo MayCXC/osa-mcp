@@ -7,17 +7,21 @@
 #   docker run -i --rm osa-mcp                       # local macOS
 #   docker run -i --rm osa-mcp --ssh user@host       # remote
 
-FROM oven/bun:slim AS base
-WORKDIR /app
+FROM oven/bun:1 AS base
+WORKDIR /usr/src/app
 
+# install dependencies into temp directory
+# this will cache them and speed up future builds
 FROM base AS install
 RUN mkdir -p /temp/prod
-COPY package.json bun.lock* /temp/prod/
-RUN cd /temp/prod && bun install --frozen-lockfile 2>/dev/null || cd /temp/prod && bun install
+COPY package.json bun.lock /temp/prod/
+RUN cd /temp/prod && bun install --frozen-lockfile --production
 
-FROM base
+# copy production dependencies and source code into final image
+FROM base AS release
 COPY --from=install /temp/prod/node_modules node_modules
-COPY package.json .
 COPY src/ src/
+COPY package.json .
+
 USER bun
 ENTRYPOINT ["bun", "run", "src/mcp.ts"]
