@@ -23,7 +23,6 @@ import { z } from "zod";
 import { parseSdef } from "./sdef.js";
 import { Executor } from "./executor.js";
 import { registerCommands, registerClasses } from "./generator.js";
-import { DISCOVER_AND_LOAD_JXA } from "./bridge.js";
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -72,7 +71,7 @@ server.addTool({
 
 async function loadAllApps(): Promise<void> {
   console.error("[osa-mcp] Loading all scriptable apps...");
-  const raw = await executor.execute(DISCOVER_AND_LOAD_JXA, "jxa");
+  const raw = await executor.dispatch("discover");
   const result = JSON.parse(raw) as {
     apps: Array<{ name: string; bundleId: string | null; sdef: string }>;
     errors: Array<{ name: string; error: string }>;
