@@ -2,20 +2,19 @@
 /**
  * osa-mcp: MCP server that generates tools from macOS sdef files.
  *
- * Connects to a macOS host (local or via SSH), discovers scriptable apps
- * via Launch Services, loads their sdef with XInclude resolution, and
- * dynamically registers MCP tools.
+ * Connects to a macOS host (local or via SSH), discovers all scriptable
+ * apps via Launch Services, loads their sdefs with XInclude resolution
+ * in a single call, and dynamically registers MCP tools.
  *
  * Usage:
- *   osa-mcp [--ssh HOST] [--app NAME] [--timeout MS] [--discover]
+ *   osa-mcp [--ssh HOST] [--timeout MS] [--discover]
  *
  * Examples:
- *   osa-mcp --app Mail                          # Local macOS
- *   osa-mcp --ssh macbook --app Mail --app Calendar  # Remote via SSH config
- *   osa-mcp --discover                          # List all scriptable apps
+ *   osa-mcp                                      # Local macOS, all apps
+ *   osa-mcp --ssh macbook                         # Remote, all apps
+ *   osa-mcp --discover                            # List scriptable apps
  *
  * env OSA_SSH_HOST   SSH host (alternative to --ssh)
- * env OSA_APPS       Comma-separated app names (alternative to --app)
  * env OSA_TIMEOUT    Timeout in ms (default: 30000)
  */
 
@@ -24,12 +23,11 @@ import { z } from "zod";
 import { parseSdef } from "./sdef.js";
 import { Executor } from "./executor.js";
 import { registerCommands, registerClasses } from "./generator.js";
-import { DISCOVER_APPS_JXA, buildLoadSdefJxa, buildFindAppJxa } from "./bridge.js";
+import { DISCOVER_AND_LOAD_JXA, DISCOVER_APPS_JXA } from "./bridge.js";
 
 // Parse CLI args
 const args = process.argv.slice(2);
 let sshHost = process.env.OSA_SSH_HOST;
-const apps: string[] = process.env.OSA_APPS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
 let timeout = Number(process.env.OSA_TIMEOUT) || 30000;
 let discover = false;
 
@@ -37,9 +35,6 @@ for (let i = 0; i < args.length; i++) {
   switch (args[i]) {
     case "--ssh":
       sshHost = args[++i];
-      break;
-    case "--app":
-      apps.push(args[++i]);
       break;
     case "--timeout":
       timeout = Number(args[++i]);
@@ -52,98 +47,16 @@ for (let i = 0; i < args.length; i++) {
 
 const executor = new Executor({ sshHost, timeout });
 
-// --- Discover mode: list all scriptable apps and exit ---
-
-async function discoverAndList(): Promise<void> {
-  console.error("[osa-mcp] Discovering scriptable apps via Launch Services...");
-  try {
-    const raw = await executor.execute(DISCOVER_APPS_JXA, "jxa");
-    const apps = JSON.parse(raw) as Array<{
-      name: string;
-      bundleId: string | null;
-      sdefName: string | null;
-      path: string;
-    }>;
-
-    const withSdef = apps.filter((a) => a.sdefName);
-    const withoutSdef = apps.filter((a) => !a.sdefName);
-
-    console.error(`\n${apps.length} scriptable apps (${withSdef.length} with sdef):\n`);
-    for (const a of withSdef.sort((a, b) => a.name.localeCompare(b.name))) {
-      console.error(`  ${a.name.padEnd(35)} ${(a.sdefName ?? "").padEnd(35)} ${a.bundleId ?? ""}`);
-    }
-    if (withoutSdef.length > 0) {
-      console.error(`\n${withoutSdef.length} scriptable apps without sdef (use execute tool):`);
-      for (const a of withoutSdef.sort((a, b) => a.name.localeCompare(b.name))) {
-        console.error(`  ${a.name.padEnd(35)} ${a.bundleId ?? ""}`);
-      }
-    }
-  } catch (e: any) {
-    console.error(`[osa-mcp] Discovery failed: ${e.message}`);
-  }
-  process.exit(0);
-}
-
-// --- Load an app's sdef via JXA + NSXMLDocument with XInclude ---
-
-async function loadAppSdef(appName: string): Promise<{ sdefXml: string; appId: string } | null> {
-  // First, discover the app to get its path and sdef name
-  console.error(`[osa-mcp] Discovering ${appName}...`);
-  const raw = await executor.execute(DISCOVER_APPS_JXA, "jxa");
-  const allApps = JSON.parse(raw) as Array<{
-    name: string;
-    bundleId: string | null;
-    sdefName: string | null;
-    path: string;
-  }>;
-
-  // Match by name (case-insensitive) or bundle ID
-  const match = allApps.find(
-    (a) =>
-      a.name.toLowerCase() === appName.toLowerCase() ||
-      a.bundleId?.toLowerCase() === appName.toLowerCase()
-  );
-
-  if (!match) {
-    console.error(`[osa-mcp] App not found: ${appName}`);
-    return null;
-  }
-
-  if (!match.sdefName) {
-    console.error(`[osa-mcp] ${match.name} is scriptable but has no sdef (use execute tool)`);
-    return null;
-  }
-
-  // Load the sdef with XInclude resolution
-  console.error(`[osa-mcp] Loading sdef for ${match.name} (${match.sdefName})...`);
-  const jxa = buildLoadSdefJxa(match.path, match.sdefName);
-  const result = await executor.execute(jxa, "jxa");
-
-  // Check if the result is a JSON error or raw XML
-  if (result.startsWith("{")) {
-    const err = JSON.parse(result);
-    if (err.error) {
-      console.error(`[osa-mcp] Failed to load sdef: ${err.error}`);
-      return null;
-    }
-  }
-
-  const appId = match.path.split("/").pop()?.replace(/\.app$/, "") ?? appName;
-  return { sdefXml: result, appId };
-}
-
-// --- Main ---
-
 const server = new FastMCP({
   name: "osa-mcp",
   version: "0.1.0",
 });
 
-// Raw execute tool
+// Raw execute tool (always available)
 server.addTool({
   name: "execute",
   description:
-    "Execute AppleScript or JXA (JavaScript for Automation) code on the macOS host. Use `language` to select the scripting language.",
+    "Execute AppleScript or JXA (JavaScript for Automation) code on the macOS host.",
   parameters: z.object({
     code: z.string().describe("Script code to execute"),
     language: z
@@ -160,37 +73,66 @@ server.addTool({
   },
 });
 
-async function main(): Promise<void> {
-  if (discover) return discoverAndList();
+// --- Discover mode ---
 
-  if (apps.length === 0) {
-    console.error("[osa-mcp] No apps specified. Use --app or OSA_APPS env var.");
-    console.error("[osa-mcp] Use --discover to list scriptable apps.");
-    console.error("[osa-mcp] Starting with execute tool only.");
+async function discoverAndList(): Promise<void> {
+  console.error("[osa-mcp] Discovering scriptable apps via Launch Services...");
+  const raw = await executor.execute(DISCOVER_APPS_JXA, "jxa");
+  const apps = JSON.parse(raw) as Array<{
+    name: string;
+    bundleId: string | null;
+    sdefName: string | null;
+  }>;
+
+  const withSdef = apps.filter((a) => a.sdefName);
+  const withoutSdef = apps.filter((a) => !a.sdefName);
+
+  console.error(`\n${apps.length} scriptable apps (${withSdef.length} with sdef):\n`);
+  for (const a of withSdef.sort((a, b) => a.name.localeCompare(b.name))) {
+    console.error(`  ${a.name.padEnd(35)} ${(a.sdefName ?? "").padEnd(35)} ${a.bundleId ?? ""}`);
   }
+  if (withoutSdef.length > 0) {
+    console.error(`\n${withoutSdef.length} scriptable without sdef (use execute tool)`);
+  }
+  process.exit(0);
+}
 
-  // Load sdef for each app (reuse the discovery query)
-  let discoveryCache: string | null = null;
+// --- Load all apps in one call ---
 
-  for (const appName of apps) {
+async function loadAllApps(): Promise<void> {
+  console.error("[osa-mcp] Loading all scriptable apps...");
+  const raw = await executor.execute(DISCOVER_AND_LOAD_JXA, "jxa");
+  const apps = JSON.parse(raw) as Array<{
+    name: string;
+    bundleId: string | null;
+    sdef: string;
+  }>;
+
+  console.error(`[osa-mcp] ${apps.length} apps loaded`);
+
+  let totalTools = 0;
+  for (const app of apps) {
     try {
-      const loaded = await loadAppSdef(appName);
-      if (!loaded) continue;
-
-      const sdef = parseSdef(loaded.sdefXml);
-      console.error(
-        `[osa-mcp] ${appName}: ${sdef.commands.length} commands, ${sdef.classes.length} classes, ${sdef.enums.length} enums`
-      );
-
-      registerCommands(server, sdef, appName, loaded.appId, executor);
-      registerClasses(server, sdef, appName, loaded.appId, executor);
-
-      console.error(`[osa-mcp] ${appName}: tools registered`);
+      const sdef = parseSdef(app.sdef);
+      const appId = app.name;
+      registerCommands(server, sdef, app.name, appId, executor);
+      registerClasses(server, sdef, app.name, appId, executor);
+      const toolCount = sdef.commands.length + sdef.classes.length * 2;
+      totalTools += toolCount;
+      console.error(`  ${app.name}: ${sdef.commands.length} commands, ${sdef.classes.length} classes`);
     } catch (e: any) {
-      console.error(`[osa-mcp] Failed to load ${appName}: ${e.message}`);
+      console.error(`  ${app.name}: failed (${e.message})`);
     }
   }
 
+  console.error(`[osa-mcp] ~${totalTools} tools registered`);
+}
+
+// --- Main ---
+
+async function main(): Promise<void> {
+  if (discover) return discoverAndList();
+  await loadAllApps();
   server.start({ transportType: "stdio" });
 }
 
