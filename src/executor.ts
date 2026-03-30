@@ -59,8 +59,6 @@ function runProcess(cmd: string, args: string[], stdin?: string): Promise<ExecRe
   });
 }
 
-const DISPATCH_PATH = new URL("dispatch.js", import.meta.url).pathname;
-
 export class Executor {
   private sshHost?: string;
 
@@ -77,12 +75,11 @@ export class Executor {
     const b64 = (v: unknown) => Buffer.from(typeof v === "string" ? v : JSON.stringify(v)).toString("base64");
     const args = op ? (data !== undefined ? [b64(op), b64(data)] : [b64(op)]) : [];
 
-    const result = this.isRemote
-      ? await runProcess(
-          "ssh", [this.sshHost!, "/usr/bin/osascript", "-l", "JavaScript", "-", ...args],
-          dispatchScript
-        )
-      : await runProcess("/usr/bin/osascript", ["-l", "JavaScript", DISPATCH_PATH, ...args]);
+    const osascript = ["-l", "JavaScript", "-", ...args];
+    const cmd = this.isRemote
+      ? { bin: "ssh", args: [this.sshHost!, "osascript", ...osascript] }
+      : { bin: "osascript", args: osascript };
+    const result = await runProcess(cmd.bin, cmd.args, dispatchScript);
 
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || `osascript exited with code ${result.exitCode}`);
