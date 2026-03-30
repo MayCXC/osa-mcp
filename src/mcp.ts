@@ -51,7 +51,7 @@ server.addTool({
 
 async function main(): Promise<void> {
   console.error("[osa-mcp] Loading all scriptable apps...");
-  const raw = await executor.dispatch("discover");
+  const raw = await executor.dispatch();
   const result = JSON.parse(raw) as {
     apps: Array<{ name: string; bundleId: string | null; sdef: string }>;
     errors: Array<{ name: string; error: string }>;

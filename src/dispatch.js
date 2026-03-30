@@ -119,9 +119,9 @@ function get(a) {
 }
 
 function run(argv) {
+  if (!argv.length) return discover();
   var op = decodeStr(argv[0]);
   switch (op) {
-    case "discover": return discover();
     case "command":  return command(decode(argv[1]));
     case "list":     return list(decode(argv[1]));
     case "get":      return get(decode(argv[1]));
