@@ -22,18 +22,33 @@ interface ExecResult {
   exitCode: number;
 }
 
+// Track all child processes so we can kill them on exit.
+const children = new Set<import("node:child_process").ChildProcess>();
+for (const sig of ["exit", "SIGTERM", "SIGINT"] as const) {
+  process.on(sig, () => {
+    for (const child of children) child.kill("SIGKILL");
+  });
+}
+
 function runProcess(cmd: string, args: string[], stdin?: string): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args, {
       stdio: [stdin !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
     });
+    children.add(proc);
     let stdout = "";
     let stderr = "";
 
     proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
     proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-    proc.on("close", (code) => resolve({ stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), exitCode: code ?? 1 }));
-    proc.on("error", reject);
+    proc.on("close", (code) => {
+      children.delete(proc);
+      resolve({ stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), exitCode: code ?? 1 });
+    });
+    proc.on("error", (err) => {
+      children.delete(proc);
+      reject(err);
+    });
 
     if (stdin !== undefined) {
       proc.stdin!.write(stdin);
