@@ -159,7 +159,7 @@ export function registerClasses(
       description: `[${appName}] List ${plural}.${parentHint}${childHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
       parameters: z.object({
         limit: z.number().int().optional().describe("Max items (default 25)"),
-        parent: z.string().optional().describe("Parent object path, e.g. 'inbox' or 'accounts[0].mailboxes[0]'"),
+        parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps: 'key'=property, 0=index, []=call, ['arg']=call with args. e.g. ['inbox'] or ['calendars','byName',['US Holidays']]"),
         properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propNames.join(", ")}`),
       }),
       execute: async (args: Record<string, any>) => {
@@ -178,7 +178,7 @@ export function registerClasses(
         index: z.number().int().optional().describe("0-based index"),
         name: z.string().optional().describe("Name to match"),
         id: z.number().int().optional().describe("ID to match"),
-        parent: z.string().optional().describe("Parent object path"),
+        parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps"),
         properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propNames.join(", ")}`),
       }),
       execute: async (args: Record<string, any>) => {

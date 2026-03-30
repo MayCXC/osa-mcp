@@ -91,11 +91,26 @@ function command(a) {
   return JSON.stringify(app[a.method]());
 }
 
+// Resolve a parent path. Each step is applied sequentially:
+//   "key"          -> obj.key        (property access)
+//   0              -> obj[0]         (index access)
+//   []             -> obj()          (call with no args)
+//   ["a1", "a2"]   -> obj("a1","a2") (call with args)
+function resolve(app, path) {
+  let obj = app;
+  for (const step of path) {
+    if (Array.isArray(step)) obj = obj(...step);
+    else obj = obj[step];
+  }
+  return obj;
+}
+
 function list(a) {
   const app = Application(a.appId);
   const limit = a.values.limit || 25;
-  const parent = a.values.parent || "";
-  const container = parent ? eval("app." + parent)[a.pluralMethod]() : app[a.pluralMethod]();
+  const parent = a.values.parent || [];
+  const base = parent.length ? resolve(app, parent) : app;
+  const container = base[a.pluralMethod]();
   const count = Math.min(container.length, limit);
   const result = [];
   for (let i = 0; i < count; i++) {
@@ -113,12 +128,13 @@ function list(a) {
 
 function get(a) {
   const app = Application(a.appId);
-  const parent = a.values.parent || "";
-  const base = parent ? eval("app." + parent)[a.pluralMethod] : app[a.pluralMethod];
+  const parent = a.values.parent || [];
+  const base = parent.length ? resolve(app, parent) : app;
+  const collection = base[a.pluralMethod];
   let item;
-  if (a.values.id !== undefined) item = base.byId(a.values.id);
-  else if (a.values.name !== undefined) item = base.byName(a.values.name);
-  else item = base[a.values.index || 0];
+  if (a.values.id !== undefined) item = collection.byId(a.values.id);
+  else if (a.values.name !== undefined) item = collection.byName(a.values.name);
+  else item = collection[a.values.index || 0];
   const obj = {};
   for (let j = 0; j < a.propMethods.length; j++) {
     const pm = a.propMethods[j];
