@@ -18,12 +18,11 @@ function decodeStr(b64) {
 
 function loadIntrinsics() {
   const bundle = $.NSBundle.bundleForClass($.SBApplication);
-  const data = $.NSData.dataWithContentsOfFile(bundle.resourcePath.js + "/intrinsics.sdef");
-  if (!data) return null;
-  const doc = $.NSXMLDocument.alloc.initWithDataOptionsError(data, 0, null);
-  if (!doc) return null;
-  const xml = doc.XMLString;
-  return xml ? (xml.js ? xml.js : "" + xml) : null;
+  const url = $.NSURL.fileURLWithPath(bundle.resourcePath.js + "/intrinsics.sdef");
+  const error = $();
+  const doc = $.NSXMLDocument.alloc.initWithContentsOfURLOptionsError(url, 0, error);
+  if (!doc || error[0]) return null;
+  return doc.XMLString.js;
 }
 
 function discover() {
@@ -72,7 +71,7 @@ function discover() {
       errors.push({ name: name, error: "XMLString nil" });
       continue;
     }
-    apps.push({ name: name, bundleId: bundleId, sdef: xml.js ? xml.js : "" + xml });
+    apps.push({ name: name, bundleId: bundleId, sdef: xml.js });
   }
   return JSON.stringify({ apps: apps, errors: errors, intrinsics: loadIntrinsics() });
 }
