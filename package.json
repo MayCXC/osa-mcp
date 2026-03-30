@@ -1,0 +1,17 @@
+{
+  "name": "osa-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "osa-mcp": "./src/mcp.ts"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.5.9",
+    "fastmcp": "^3.34.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
