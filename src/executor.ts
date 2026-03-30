@@ -7,8 +7,8 @@
  * No timeout: if Claude Code kills the tool, the process tree dies.
  */
 
-import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { spawn, type ChildProcess } from "node:child_process";
+import dispatchScript from "./dispatch.js" with { type: "text" };
 
 export interface ExecutorOptions {
   sshHost?: string;
@@ -22,7 +22,7 @@ interface ExecResult {
 
 // Track child processes. Kill them when the MCP client disconnects
 // (stdin closes) or the process receives a signal.
-const children = new Set<import("node:child_process").ChildProcess>();
+const children = new Set<ChildProcess>();
 function killChildren() {
   for (const child of children) child.kill("SIGKILL");
 }
@@ -59,7 +59,7 @@ function runProcess(cmd: string, args: string[], stdin?: string): Promise<ExecRe
   });
 }
 
-const DISPATCH_PATH = join(import.meta.dir, "dispatch.js");
+const DISPATCH_PATH = new URL("dispatch.js", import.meta.url).pathname;
 
 export class Executor {
   private sshHost?: string;
@@ -79,8 +79,8 @@ export class Executor {
 
     const result = this.isRemote
       ? await runProcess(
-          "ssh", [this.sshHost!, "osascript", "-l", "JavaScript", "-", ...args],
-          await Bun.file(DISPATCH_PATH).text()
+          "ssh", [this.sshHost!, "/usr/bin/osascript", "-l", "JavaScript", "-", ...args],
+          dispatchScript
         )
       : await runProcess("/usr/bin/osascript", ["-l", "JavaScript", DISPATCH_PATH, ...args]);
 

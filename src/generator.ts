@@ -74,6 +74,9 @@ function buildContainment(sdef: Sdef): Map<string, string[]> {
   return map;
 }
 
+// Track all registered tool names to avoid collisions
+const registeredTools = new Set<string>();
+
 export function registerCommands(
   server: FastMCP, sdef: Sdef, appName: string, appId: string, executor: Executor,
   intrinsics: Map<string, IntrinsicType> = new Map()
@@ -86,6 +89,7 @@ export function registerCommands(
     if (["open", "close", "count", "exists", "make", "set", "get"].includes(cmd.name)) continue;
 
     const name = toolName(prefix, cmd.name);
+    if (registeredTools.has(name)) continue;
     const description = `[${appName}] ${cmd.description || cmd.name}`.slice(0, 500);
 
     const shape: Record<string, z.ZodTypeAny> = {};
@@ -113,6 +117,7 @@ export function registerCommands(
       })),
     };
 
+    registeredTools.add(name);
     server.addTool({
       name,
       description,
@@ -148,14 +153,20 @@ export function registerClasses(
     const parentHint = parents.length > 0 ? ` Found inside: ${parents.join(", ")}.` : "";
     const childHint = children.length > 0 ? ` Contains: ${children.join(", ")}.` : "";
 
+    const listName = toolName(prefix, `list_${plural}`);
+    const getName = toolName(prefix, `get_${cls.name}`);
+    if (registeredTools.has(listName)) continue;
+
     const meta = {
       appId,
       pluralMethod: jxaMethodName(plural),
       propMethods: readableProps.map((p) => ({ name: p.name, method: jxaMethodName(p.name) })),
     };
 
+    registeredTools.add(listName);
+    registeredTools.add(getName);
     server.addTool({
-      name: toolName(prefix, `list_${plural}`),
+      name: listName,
       description: `[${appName}] List ${plural}.${parentHint}${childHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
       parameters: z.object({
         limit: z.number().int().optional().describe("Max items (default 25)"),
@@ -172,7 +183,7 @@ export function registerClasses(
     });
 
     server.addTool({
-      name: toolName(prefix, `get_${cls.name}`),
+      name: getName,
       description: `[${appName}] Get a ${cls.name} by index or name.${parentHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
       parameters: z.object({
         index: z.number().int().optional().describe("0-based index"),

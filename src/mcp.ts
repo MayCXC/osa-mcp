@@ -77,8 +77,9 @@ async function main(): Promise<void> {
   for (const app of result.apps) {
     try {
       const sdef = parseSdef(app.sdef);
-      registerCommands(server, sdef, app.name, app.name, executor, intrinsics);
-      registerClasses(server, sdef, app.name, app.name, executor, intrinsics);
+      const appId = app.bundleId ?? app.name;
+      registerCommands(server, sdef, app.name, appId, executor, intrinsics);
+      registerClasses(server, sdef, app.name, appId, executor, intrinsics);
       console.error(`  ${app.name}: ${sdef.commands.length} commands, ${sdef.classes.length} classes`);
     } catch (e: any) {
       console.error(`  ${app.name}: failed (${e.message})`);

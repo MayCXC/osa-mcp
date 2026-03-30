@@ -11,11 +11,18 @@ import { XMLParser } from "fast-xml-parser";
 
 // --- Zod schema mirroring sdef.dtd ---
 
+const Synonym = z.object({
+  "@_name": z.string().optional(),
+  "@_code": z.string().optional(),
+  "@_plural": z.string().optional(),
+});
+
 const Enumerator = z.object({
   "@_name": z.string(),
   "@_code": z.string().default(""),
   "@_description": z.string().default(""),
   "@_hidden": z.string().optional(),
+  synonym: z.array(Synonym).default([]),
 });
 
 const Enumeration = z.object({
@@ -41,6 +48,7 @@ const Parameter = z.object({
   "@_type": z.string().default("text"),
   "@_description": z.string().default(""),
   "@_optional": z.string().optional(),
+  synonym: z.array(Synonym).default([]),
 });
 
 const Property = z.object({
@@ -50,6 +58,7 @@ const Property = z.object({
   "@_description": z.string().default(""),
   "@_access": z.string().optional(),
   "@_hidden": z.string().optional(),
+  synonym: z.array(Synonym).default([]),
 });
 
 const Element = z.object({
@@ -65,6 +74,7 @@ const Command = z.object({
   "direct-parameter": z.array(DirectParameter).default([]),
   parameter: z.array(Parameter).default([]),
   result: z.array(ResultType).default([]),
+  synonym: z.array(Synonym).default([]),
 });
 
 const SdefClass = z.object({
@@ -77,6 +87,7 @@ const SdefClass = z.object({
   "@_hidden": z.string().optional(),
   property: z.array(Property).default([]),
   element: z.array(Element).default([]),
+  synonym: z.array(Synonym).default([]),
 });
 
 const Suite = z.object({
@@ -273,11 +284,9 @@ export function parseSdef(xml: string): Sdef {
 
   // Deduplication sets (appscript pattern)
   const foundCommands = new Map<string, SdefCommand>();
-  const foundClasses = new Set<string>();
-  const foundEnums = new Set<string>();
+  const foundClasses = new Map<string, SdefClass>();
 
   const commands: SdefCommand[] = [];
-  const classes: SdefClass[] = [];
   const enums: SdefEnum[] = [];
 
   for (const suite of doc.dictionary.suite) {
@@ -337,59 +346,75 @@ export function parseSdef(xml: string): Sdef {
     }
 
     // Classes, class-extensions, and record-types
+    // Same-name classes across suites are merged (properties + elements combined).
     for (const cls of [...suite["class"], ...suite["class-extension"], ...(suite["record-type"] ?? [])]) {
       if (!cls || cls["@_hidden"] === "yes") continue;
       const name = cls["@_name"] ?? cls["@_extends"];
       if (!name) continue;
       const code = cls["@_code"] ?? "";
-      const key = dedupKey(name, code);
 
-      if (!foundClasses.has(key)) {
-        foundClasses.add(key);
+      const existing = foundClasses.get(name);
+      const classProps = new Set<string>();
+      const properties: SdefProperty[] = [];
 
-        const properties: SdefProperty[] = [];
-        const classProps = new Set<string>(); // per-class dedup
-        for (const p of cls.property ?? []) {
-          if (p["@_hidden"] === "yes") continue;
-          const propKey = dedupKey(p["@_name"], p["@_code"]);
-          if (!classProps.has(propKey)) {
-            classProps.add(propKey);
+      if (existing) {
+        // Seed dedup set from existing properties
+        for (const p of existing.properties) classProps.add(dedupKey(p.name, p.code));
+        properties.push(...existing.properties);
+      }
+
+      for (const p of cls.property ?? []) {
+        if (p["@_hidden"] === "yes") continue;
+        const propKey = dedupKey(p["@_name"], p["@_code"]);
+        if (!classProps.has(propKey)) {
+          classProps.add(propKey);
+          properties.push({
+            name: p["@_name"], code: p["@_code"], type: p["@_type"],
+            description: p["@_description"], access: parseAccess(p["@_access"]),
+          });
+        }
+        for (const syn of parseSynonyms(p)) {
+          const synKey = dedupKey(syn.name, syn.code);
+          if (!classProps.has(synKey)) {
+            classProps.add(synKey);
             properties.push({
-              name: p["@_name"], code: p["@_code"], type: p["@_type"],
+              name: syn.name, code: syn.code, type: p["@_type"],
               description: p["@_description"], access: parseAccess(p["@_access"]),
             });
           }
-          // Property synonyms
-          for (const syn of parseSynonyms(p)) {
-            const synKey = dedupKey(syn.name, syn.code);
-            if (!classProps.has(synKey)) {
-              classProps.add(synKey);
-              properties.push({
-                name: syn.name, code: syn.code, type: p["@_type"],
-                description: p["@_description"], access: parseAccess(p["@_access"]),
-              });
-            }
-          }
         }
+      }
 
-        classes.push({
+      const newElements = (cls.element ?? []).map((e: any) => ({
+        type: e["@_type"] as string, access: parseAccess(e["@_access"]),
+      }));
+
+      if (existing) {
+        // Merge into existing entry
+        existing.properties = properties;
+        const elemTypes = new Set(existing.elements.map(e => e.type));
+        for (const el of newElements) {
+          if (!elemTypes.has(el.type)) existing.elements.push(el);
+        }
+        if (!existing.code && code) existing.code = code;
+        if (!existing.inherits && cls["@_inherits"]) existing.inherits = cls["@_inherits"];
+        if (!existing.plural && cls["@_plural"]) existing.plural = cls["@_plural"];
+      } else {
+        const entry: SdefClass = {
           suite: suiteName, name, code,
           description: cls["@_description"] ?? "",
           inherits: cls["@_inherits"] || undefined,
           plural: cls["@_plural"] || undefined,
           properties,
-          elements: (cls.element ?? []).map((e: any) => ({
-            type: e["@_type"], access: parseAccess(e["@_access"]),
-          })),
-        });
+          elements: newElements,
+        };
+        foundClasses.set(name, entry);
       }
 
       // Class synonyms register as additional class entries
       for (const syn of parseSynonyms(cls)) {
-        const synKey = dedupKey(syn.name, syn.code);
-        if (!foundClasses.has(synKey)) {
-          foundClasses.add(synKey);
-          classes.push({
+        if (!foundClasses.has(syn.name)) {
+          foundClasses.set(syn.name, {
             suite: suiteName, name: syn.name, code: syn.code,
             description: cls["@_description"] ?? "",
             plural: syn.plural || `${syn.name}s`,
@@ -405,19 +430,15 @@ export function parseSdef(xml: string): Sdef {
       const name = vt["@_name"];
       if (!name) continue;
       const code = vt["@_code"] ?? "";
-      const key = dedupKey(name, code);
-      if (!foundClasses.has(key)) {
-        foundClasses.add(key);
-        classes.push({
+      if (!foundClasses.has(name)) {
+        foundClasses.set(name, {
           suite: suiteName, name, code,
           description: "", properties: [], elements: [],
         });
       }
       for (const syn of parseSynonyms(vt)) {
-        const synKey = dedupKey(syn.name, syn.code);
-        if (!foundClasses.has(synKey)) {
-          foundClasses.add(synKey);
-          classes.push({
+        if (!foundClasses.has(syn.name)) {
+          foundClasses.set(syn.name, {
             suite: suiteName, name: syn.name, code: syn.code,
             description: "", properties: [], elements: [],
           });
@@ -425,21 +446,22 @@ export function parseSdef(xml: string): Sdef {
       }
     }
 
-    // Enumerations
+    // Enumerations (dedup per-enumeration, not global)
     for (const en of suite.enumeration) {
       const values: SdefEnumValue[] = [];
+      const enumSeen = new Set<string>();
       for (const v of en.enumerator) {
         if (v["@_hidden"] === "yes") continue;
         const vKey = dedupKey(v["@_name"], v["@_code"]);
-        if (!foundEnums.has(vKey)) {
-          foundEnums.add(vKey);
+        if (!enumSeen.has(vKey)) {
+          enumSeen.add(vKey);
           values.push({ name: v["@_name"], code: v["@_code"], description: v["@_description"] });
         }
         // Enumerator synonyms
         for (const syn of parseSynonyms(v)) {
           const synKey = dedupKey(syn.name, syn.code);
-          if (!foundEnums.has(synKey)) {
-            foundEnums.add(synKey);
+          if (!enumSeen.has(synKey)) {
+            enumSeen.add(synKey);
             values.push({ name: syn.name, code: syn.code, description: v["@_description"] });
           }
         }
@@ -448,8 +470,9 @@ export function parseSdef(xml: string): Sdef {
     }
   }
 
-  // Convert command map to array
+  // Convert maps to arrays
   commands.push(...foundCommands.values());
+  const classes = [...foundClasses.values()];
 
   return { title: doc.dictionary["@_title"], commands, classes, enums };
 }
