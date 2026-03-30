@@ -8,7 +8,7 @@
 
 import type { FastMCP } from "fastmcp";
 import { z } from "zod";
-import type { Sdef, SdefClass } from "./sdef.js";
+import type { Sdef, SdefClass, IntrinsicType } from "./sdef.js";
 import type { Executor } from "./executor.js";
 
 function toolName(prefix: string, name: string): string {
@@ -23,23 +23,32 @@ function jxaMethodName(sdefName: string): string {
 function sdefTypeToZod(
   type: string,
   enums: Map<string, string[]>,
-  classes: Map<string, SdefClass>
+  classes: Map<string, SdefClass>,
+  intrinsics: Map<string, IntrinsicType>
 ): z.ZodTypeAny {
-  switch (type) {
-    case "integer": return z.number().int();
-    case "real": case "number": return z.number();
-    case "boolean": return z.boolean();
-    case "text": case "string": return z.string();
-    case "date": return z.string().describe("ISO date string");
-    case "file": return z.string().describe("POSIX file path");
-    default: {
-      const enumValues = enums.get(type);
-      if (enumValues && enumValues.length > 0) return z.enum(enumValues as [string, ...string[]]);
-      const cls = classes.get(type);
-      if (cls) return z.string().describe(`${type} specifier`);
-      return z.string();
+  // Check intrinsics first (canonical Apple type mapping)
+  const intrinsic = intrinsics.get(type);
+  if (intrinsic) {
+    switch (intrinsic.jsType) {
+      case "number": return intrinsic.name === "integer" ? z.number().int() : z.number();
+      case "boolean": return z.boolean();
+      case "array": return z.array(z.unknown());
+      case "object": return z.string().describe("JSON object as string");
+      case "any": return z.string();
+      case "string": return z.string();
     }
   }
+
+  // Check enums
+  const enumValues = enums.get(type);
+  if (enumValues && enumValues.length > 0) return z.enum(enumValues as [string, ...string[]]);
+
+  // Check class references
+  const cls = classes.get(type);
+  if (cls) return z.string().describe(`${type} specifier`);
+
+  // Fallback
+  return z.string();
 }
 
 function buildEnumMap(sdef: Sdef): Map<string, string[]> {
@@ -66,7 +75,8 @@ function buildContainment(sdef: Sdef): Map<string, string[]> {
 }
 
 export function registerCommands(
-  server: FastMCP, sdef: Sdef, appName: string, appId: string, executor: Executor
+  server: FastMCP, sdef: Sdef, appName: string, appId: string, executor: Executor,
+  intrinsics: Map<string, IntrinsicType> = new Map()
 ): void {
   const prefix = appName.toLowerCase().replace(/\s+/g, "_");
   const enums = buildEnumMap(sdef);
@@ -80,14 +90,14 @@ export function registerCommands(
 
     const shape: Record<string, z.ZodTypeAny> = {};
     if (cmd.directParam) {
-      let s = sdefTypeToZod(cmd.directParam.type, enums, classes);
+      let s = sdefTypeToZod(cmd.directParam.type, enums, classes, intrinsics);
       if (cmd.directParam.description) s = s.describe(cmd.directParam.description);
       if (cmd.directParam.optional) s = s.optional();
       shape["target"] = s;
     }
     for (const p of cmd.params) {
       const paramKey = p.name.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "");
-      let s = sdefTypeToZod(p.type, enums, classes);
+      let s = sdefTypeToZod(p.type, enums, classes, intrinsics);
       if (p.description) s = s.describe(p.description);
       if (p.optional) s = s.optional();
       shape[paramKey] = s;
@@ -119,7 +129,8 @@ export function registerCommands(
 }
 
 export function registerClasses(
-  server: FastMCP, sdef: Sdef, appName: string, appId: string, executor: Executor
+  server: FastMCP, sdef: Sdef, appName: string, appId: string, executor: Executor,
+  intrinsics: Map<string, IntrinsicType> = new Map()
 ): void {
   const prefix = appName.toLowerCase().replace(/\s+/g, "_");
   const containment = buildContainment(sdef);

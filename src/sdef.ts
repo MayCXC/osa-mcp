@@ -177,6 +177,65 @@ export interface Sdef {
   enums: SdefEnum[];
 }
 
+/** A base type from ScriptingBridge intrinsics.sdef */
+export interface IntrinsicType {
+  name: string;
+  code: string;
+  jsType: "string" | "number" | "boolean" | "object" | "array" | "any";
+  synonyms: string[];
+}
+
+/** Parse intrinsics.sdef into a type name -> jsType map (including synonyms). */
+export function parseIntrinsics(xml: string): Map<string, IntrinsicType> {
+  const intrParser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: "@_",
+    allowBooleanAttributes: true,
+    isArray: (name) => [...ARRAY_TAGS, "value-type", "synonym"].includes(name),
+  });
+  const raw = intrParser.parse(xml.replace(/<!DOCTYPE[^>]*>[\s\S]*?(?=<dictionary)/, ""));
+  const map = new Map<string, IntrinsicType>();
+
+  const dict = raw.dictionary;
+  if (!dict) return map;
+
+  const suites = Array.isArray(dict.suite) ? dict.suite : [dict.suite];
+  for (const suite of suites) {
+    if (!suite) continue;
+    for (const vt of suite["value-type"] ?? []) {
+      if (!vt) continue;
+      const name = vt["@_name"];
+      if (!name) continue;
+
+      // Map to JS types based on the cocoa class
+      const cocoaArr = Array.isArray(vt.cocoa) ? vt.cocoa : vt.cocoa ? [vt.cocoa] : [];
+      const cocoa = cocoaArr[0]?.["@_class"] ?? "";
+      let jsType: IntrinsicType["jsType"] = "string";
+      if (cocoa.includes("Number")) jsType = "number";
+      else if (cocoa === "NSArray") jsType = "array";
+      else if (cocoa === "NSDictionary") jsType = "object";
+      else if (cocoa === "NSNull") jsType = "any";
+      else if (cocoa === "SBObject" || cocoa === "id") jsType = "any";
+
+      if (name === "boolean") jsType = "boolean";
+      if (name === "integer" || name === "real" || name === "number" || name === "double integer") jsType = "number";
+
+      const synonyms: string[] = [];
+      for (const syn of vt.synonym ?? []) {
+        if (!syn) continue;
+        const synName = syn["@_name"];
+        if (synName) synonyms.push(synName);
+      }
+
+      const entry: IntrinsicType = { name, code: vt["@_code"] ?? "", jsType, synonyms };
+      map.set(name, entry);
+      for (const syn of synonyms) map.set(syn, entry);
+    }
+  }
+
+  return map;
+}
+
 function parseAccess(v: string | undefined): "r" | "w" | "rw" {
   if (v === "r") return "r";
   if (v === "w") return "w";

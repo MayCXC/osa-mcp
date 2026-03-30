@@ -4,6 +4,7 @@
 
 ObjC.import("Foundation");
 ObjC.import("AppKit");
+ObjC.import("ScriptingBridge");
 
 function decode(b64) {
   const d = $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
@@ -13,6 +14,16 @@ function decode(b64) {
 function decodeStr(b64) {
   const d = $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
   return $.NSString.alloc.initWithDataEncoding(d, 4).js;
+}
+
+function loadIntrinsics() {
+  const bundle = $.NSBundle.bundleForClass($.SBApplication);
+  const data = $.NSData.dataWithContentsOfFile(bundle.resourcePath.js + "/intrinsics.sdef");
+  if (!data) return null;
+  const doc = $.NSXMLDocument.alloc.initWithDataOptionsError(data, 0, null);
+  if (!doc) return null;
+  const xml = doc.XMLString;
+  return xml ? (xml.js ? xml.js : "" + xml) : null;
 }
 
 function discover() {
@@ -63,7 +74,7 @@ function discover() {
     }
     apps.push({ name: name, bundleId: bundleId, sdef: xml.js ? xml.js : "" + xml });
   }
-  return JSON.stringify({ apps: apps, errors: errors });
+  return JSON.stringify({ apps: apps, errors: errors, intrinsics: loadIntrinsics() });
 }
 
 function command(a) {

@@ -16,7 +16,7 @@
 
 import { FastMCP } from "fastmcp";
 import { z } from "zod";
-import { parseSdef } from "./sdef.js";
+import { parseSdef, parseIntrinsics } from "./sdef.js";
 import { Executor } from "./executor.js";
 import { registerCommands, registerClasses } from "./generator.js";
 
@@ -55,7 +55,11 @@ async function main(): Promise<void> {
   const result = JSON.parse(raw) as {
     apps: Array<{ name: string; bundleId: string | null; sdef: string }>;
     errors: Array<{ name: string; error: string }>;
+    intrinsics: string | null;
   };
+
+  const intrinsics = result.intrinsics ? parseIntrinsics(result.intrinsics) : new Map();
+  console.error(`[osa-mcp] ${intrinsics.size} intrinsic types loaded`);
 
   console.error(`[osa-mcp] ${result.apps.length} apps loaded`);
   if (result.errors.length > 0) {
@@ -65,8 +69,8 @@ async function main(): Promise<void> {
   for (const app of result.apps) {
     try {
       const sdef = parseSdef(app.sdef);
-      registerCommands(server, sdef, app.name, app.name, executor);
-      registerClasses(server, sdef, app.name, app.name, executor);
+      registerCommands(server, sdef, app.name, app.name, executor, intrinsics);
+      registerClasses(server, sdef, app.name, app.name, executor, intrinsics);
       console.error(`  ${app.name}: ${sdef.commands.length} commands, ${sdef.classes.length} classes`);
     } catch (e: any) {
       console.error(`  ${app.name}: failed (${e.message})`);
