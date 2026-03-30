@@ -17,6 +17,7 @@ RUN cd /temp/prod && bun install --frozen-lockfile 2>/dev/null || cd /temp/prod 
 
 FROM base
 COPY --from=install /temp/prod/node_modules node_modules
-COPY package.json src/ ./src/
+COPY package.json .
+COPY src/ src/
 USER bun
 ENTRYPOINT ["bun", "run", "src/mcp.ts"]
