@@ -29,8 +29,6 @@ import { DISCOVER_AND_LOAD_JXA } from "./bridge.js";
 const args = process.argv.slice(2);
 let sshHost = process.env.OSA_SSH_HOST;
 let timeout = Number(process.env.OSA_TIMEOUT) || 30000;
-let discover = false;
-
 for (let i = 0; i < args.length; i++) {
   switch (args[i]) {
     case "--ssh":
@@ -38,9 +36,6 @@ for (let i = 0; i < args.length; i++) {
       break;
     case "--timeout":
       timeout = Number(args[++i]);
-      break;
-    case "--discover":
-      discover = true;
       break;
   }
 }
@@ -72,26 +67,6 @@ server.addTool({
     }
   },
 });
-
-// --- Discover mode ---
-
-async function discoverAndList(): Promise<void> {
-  console.error("[osa-mcp] Discovering scriptable apps via Launch Services...\n");
-  const raw = await executor.execute(DISCOVER_AND_LOAD_JXA, "jxa");
-  const result = JSON.parse(raw) as {
-    apps: Array<{ name: string; bundleId: string | null; sdef: string }>;
-    errors: Array<{ name: string; error: string }>;
-  };
-
-  for (const a of result.apps.sort((a, b) => a.name.localeCompare(b.name))) {
-    console.error(`  ${a.name.padEnd(35)} ${a.bundleId ?? ""}`);
-  }
-  console.error(`\n${result.apps.length} apps loaded`);
-  if (result.errors.length > 0) {
-    console.error(`${result.errors.length} failed: ${result.errors.map((e) => e.name).join(", ")}`);
-  }
-  process.exit(0);
-}
 
 // --- Load all apps in one call ---
 
@@ -133,7 +108,6 @@ async function loadAllApps(): Promise<void> {
 // --- Main ---
 
 async function main(): Promise<void> {
-  if (discover) return discoverAndList();
   await loadAllApps();
   server.start({ transportType: "stdio" });
 }
