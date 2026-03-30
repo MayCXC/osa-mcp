@@ -76,12 +76,10 @@ export class Executor {
     return !!this.sshHost;
   }
 
-  /** Call dispatch.js with an operation and optional data. */
+  /** Call dispatch.js with an operation and optional data. All argv are base64. */
   async dispatch(op: string, data?: unknown): Promise<string> {
-    const args: string[] = [op];
-    if (data !== undefined) {
-      args.push(Buffer.from(JSON.stringify(data)).toString("base64"));
-    }
+    const b64 = (v: unknown) => Buffer.from(typeof v === "string" ? v : JSON.stringify(v)).toString("base64");
+    const args = data !== undefined ? [b64(op), b64(data)] : [b64(op)];
 
     let result: ExecResult;
     if (this.isRemote) {

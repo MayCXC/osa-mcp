@@ -1,12 +1,6 @@
 // dispatch.js: Single JXA script that handles all osa-mcp operations.
-// Called as: osascript -l JavaScript dispatch.js OPERATION BASE64_ARGS
-//
-// Operations:
-//   discover     - find all scriptable apps and load sdefs
-//   command      - execute an sdef command
-//   list         - list class instances
-//   get          - get a single class instance
-//   execute      - run arbitrary code
+// Called as: osascript -l JavaScript dispatch.js BASE64_OP [BASE64_ARGS...]
+// All argv are base64-encoded. First is the operation name, rest are JSON payloads.
 
 ObjC.import("Foundation");
 ObjC.import("AppKit");
@@ -14,6 +8,11 @@ ObjC.import("AppKit");
 function decode(b64) {
   var d = $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
   return JSON.parse($.NSString.alloc.initWithDataEncoding(d, 4).js);
+}
+
+function decodeStr(b64) {
+  var d = $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
+  return $.NSString.alloc.initWithDataEncoding(d, 4).js;
 }
 
 function discover() {
@@ -37,8 +36,7 @@ function discover() {
     if (!path) continue;
     var bundle = $.NSBundle.bundleWithPath(path);
     if (!bundle || !bundle.infoDictionary) continue;
-    var info = bundle.infoDictionary;
-    var sdefObj = info.objectForKey("OSAScriptingDefinition");
+    var sdefObj = bundle.infoDictionary.objectForKey("OSAScriptingDefinition");
     if (!sdefObj) continue;
 
     var displayName = item.valueForAttribute("kMDItemDisplayName");
@@ -68,39 +66,34 @@ function discover() {
   return JSON.stringify({ apps: apps, errors: errors });
 }
 
-function command(args) {
-  var app = Application(args.appId);
+function command(a) {
+  var app = Application(a.appId);
   var namedArgs = {};
-  var paramKeys = args.paramKeys;
-  for (var i = 0; i < paramKeys.length; i++) {
-    var pk = paramKeys[i];
-    if (args.values[pk.argKey] !== undefined) namedArgs[pk.jxaKey] = args.values[pk.argKey];
+  for (var i = 0; i < a.paramKeys.length; i++) {
+    var pk = a.paramKeys[i];
+    if (a.values[pk.argKey] !== undefined) namedArgs[pk.jxaKey] = a.values[pk.argKey];
   }
   var hasNamed = Object.keys(namedArgs).length > 0;
-  var result;
-  if (args.hasDirectParam && args.values.target !== undefined) {
-    result = hasNamed ? app[args.method](args.values.target, namedArgs) : app[args.method](args.values.target);
-  } else if (hasNamed) {
-    result = app[args.method](namedArgs);
-  } else {
-    result = app[args.method]();
+  if (a.hasDirectParam && a.values.target !== undefined) {
+    return JSON.stringify(hasNamed ? app[a.method](a.values.target, namedArgs) : app[a.method](a.values.target));
   }
-  return JSON.stringify(result);
+  if (hasNamed) return JSON.stringify(app[a.method](namedArgs));
+  return JSON.stringify(app[a.method]());
 }
 
-function list(args) {
-  var app = Application(args.appId);
-  var limit = args.values.limit || 25;
-  var parent = args.values.parent || "";
-  var container = parent ? eval("app." + parent)[args.pluralMethod]() : app[args.pluralMethod]();
+function list(a) {
+  var app = Application(a.appId);
+  var limit = a.values.limit || 25;
+  var parent = a.values.parent || "";
+  var container = parent ? eval("app." + parent)[a.pluralMethod]() : app[a.pluralMethod]();
   var count = Math.min(container.length, limit);
   var result = [];
   for (var i = 0; i < count; i++) {
     var item = container[i];
-    var obj = {_index: i};
-    for (var j = 0; j < args.propMethods.length; j++) {
-      var pm = args.propMethods[j];
-      if (args.values.properties && args.values.properties.indexOf(pm.name) < 0) continue;
+    var obj = { _index: i };
+    for (var j = 0; j < a.propMethods.length; j++) {
+      var pm = a.propMethods[j];
+      if (a.values.properties && a.values.properties.indexOf(pm.name) < 0) continue;
       try { obj[pm.name] = item[pm.method](); } catch(e) { obj[pm.name] = null; }
     }
     result.push(obj);
@@ -108,40 +101,31 @@ function list(args) {
   return JSON.stringify(result);
 }
 
-function get(args) {
-  var app = Application(args.appId);
-  var parent = args.values.parent || "";
-  var base = parent ? eval("app." + parent)[args.pluralMethod] : app[args.pluralMethod];
+function get(a) {
+  var app = Application(a.appId);
+  var parent = a.values.parent || "";
+  var base = parent ? eval("app." + parent)[a.pluralMethod] : app[a.pluralMethod];
   var item;
-  if (args.values.id !== undefined) {
-    item = base.byId(args.values.id);
-  } else if (args.values.name !== undefined) {
-    item = base.byName(args.values.name);
-  } else {
-    item = base[args.values.index || 0];
-  }
+  if (a.values.id !== undefined) item = base.byId(a.values.id);
+  else if (a.values.name !== undefined) item = base.byName(a.values.name);
+  else item = base[a.values.index || 0];
   var obj = {};
-  for (var j = 0; j < args.propMethods.length; j++) {
-    var pm = args.propMethods[j];
-    if (args.values.properties && args.values.properties.indexOf(pm.name) < 0) continue;
+  for (var j = 0; j < a.propMethods.length; j++) {
+    var pm = a.propMethods[j];
+    if (a.values.properties && a.values.properties.indexOf(pm.name) < 0) continue;
     try { obj[pm.name] = item[pm.method](); } catch(e) { obj[pm.name] = null; }
   }
   return JSON.stringify(obj);
 }
 
 function run(argv) {
-  var op = argv[0];
-  if (op === "discover") return discover();
-  var args = decode(argv[1]);
-  if (op === "command") return command(args);
-  if (op === "list") return list(args);
-  if (op === "get") return get(args);
-  if (op === "execute") {
-    // For arbitrary code, we eval it. The code is from the MCP user.
-    var lang = args.language || "jxa";
-    if (lang === "jxa") return eval(args.code);
-    // AppleScript would need a different execution path
-    return "Error: use osascript directly for AppleScript";
+  var op = decodeStr(argv[0]);
+  switch (op) {
+    case "discover": return discover();
+    case "command":  return command(decode(argv[1]));
+    case "list":     return list(decode(argv[1]));
+    case "get":      return get(decode(argv[1]));
+    case "execute":  return eval(decode(argv[1]).code);
+    default:         return JSON.stringify({ error: "unknown: " + op });
   }
-  return JSON.stringify({error: "unknown operation: " + op});
 }
