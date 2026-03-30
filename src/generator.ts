@@ -1,8 +1,8 @@
 /**
  * generator.ts: Convert parsed sdef into FastMCP tool registrations.
  *
- * Generates JXA code for each sdef command. The JXA Application object
- * maps directly to sdef classes and commands.
+ * Strategy: keep it simple like echochat's OpenAPI -> fetch approach.
+ * Every tool maps to a single JXA expression. No complex code generation.
  */
 
 import type { FastMCP } from "fastmcp";
@@ -10,7 +10,18 @@ import { z } from "zod";
 import type { Sdef, SdefCommand, SdefClass } from "./sdef.js";
 import type { Executor } from "./executor.js";
 
-/** Map sdef type names to Zod schemas. */
+/** Sanitize a name for use as a tool name. */
+function toolName(prefix: string, name: string): string {
+  return `${prefix}_${name.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "").toLowerCase()}`;
+}
+
+/** Convert sdef name to JXA camelCase method name. */
+function jxaMethodName(sdefName: string): string {
+  const words = sdefName.split(/\s+/);
+  return words[0].toLowerCase() + words.slice(1).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
+}
+
+/** Map sdef type to Zod. Keep it simple: everything that isn't a primitive becomes a string. */
 function sdefTypeToZod(type: string): z.ZodTypeAny {
   switch (type) {
     case "integer":
@@ -20,35 +31,16 @@ function sdefTypeToZod(type: string): z.ZodTypeAny {
       return z.number();
     case "boolean":
       return z.boolean();
-    case "text":
-    case "string":
-      return z.string();
-    case "file":
-      return z.string().describe("file path");
-    case "specifier":
-    case "location specifier":
-      return z.string().describe("object specifier");
-    case "record":
-      return z.string().describe("JSON object as string");
-    case "date":
-      return z.string().describe("date string");
-    case "list":
-      return z.array(z.unknown());
-    case "type":
-      return z.string().describe("type name");
     default:
       return z.string();
   }
 }
 
-/** Sanitize a name for use as a tool name (lowercase, underscores). */
-function toolName(prefix: string, name: string): string {
-  return `${prefix}_${name.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "").toLowerCase()}`;
-}
-
-/** Escape a string for use in JXA. */
-function jxaEscape(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+/** Escape a value for embedding in JXA code. */
+function jxaValue(val: unknown): string {
+  if (typeof val === "string") return JSON.stringify(val);
+  if (typeof val === "number" || typeof val === "boolean") return String(val);
+  return JSON.stringify(String(val));
 }
 
 /** Register sdef commands as MCP tools. */
@@ -62,7 +54,7 @@ export function registerCommands(
   const prefix = appName.toLowerCase().replace(/\s+/g, "_");
 
   for (const cmd of sdef.commands) {
-    // Skip standard suite commands that aren't useful as standalone tools
+    // Skip generic CRUD that need object specifiers to be useful
     if (["open", "close", "count", "exists", "make", "set", "get"].includes(cmd.name)) continue;
 
     const name = toolName(prefix, cmd.name);
@@ -77,36 +69,70 @@ export function registerCommands(
       shape["target"] = s;
     }
     for (const p of cmd.params) {
-      const paramName = p.name.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "");
+      const paramKey = p.name.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "");
       let s = sdefTypeToZod(p.type);
       if (p.description) s = s.describe(p.description);
       if (p.optional) s = s.optional();
-      shape[paramName] = s;
+      shape[paramKey] = s;
     }
 
     const parameters = z.object(shape);
 
-    try {
-      server.addTool({
-        name,
-        description,
-        parameters,
-        execute: async (args: Record<string, any>) => {
-          const jxa = buildCommandJxa(appId, cmd, args);
-          try {
-            return await executor.execute(jxa, "jxa");
-          } catch (e: any) {
-            return `Error: ${e.message}`;
+    server.addTool({
+      name,
+      description,
+      parameters,
+      execute: async (args: Record<string, any>) => {
+        const method = jxaMethodName(cmd.name);
+        const parts: string[] = [];
+        parts.push(`const app = Application(${JSON.stringify(appId)});`);
+
+        // Build args object for named parameters
+        const namedArgs: string[] = [];
+        for (const p of cmd.params) {
+          const paramKey = p.name.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "");
+          if (args[paramKey] === undefined) continue;
+          namedArgs.push(`${jxaMethodName(p.name)}: ${jxaValue(args[paramKey])}`);
+        }
+
+        if (cmd.directParam && args.target !== undefined) {
+          if (namedArgs.length > 0) {
+            parts.push(`const result = app.${method}(${jxaValue(args.target)}, {${namedArgs.join(", ")}});`);
+          } else {
+            parts.push(`const result = app.${method}(${jxaValue(args.target)});`);
           }
-        },
-      });
-    } catch (e: any) {
-      console.error(`[osa-mcp] Failed to register command tool ${name}: ${e.message}`);
-    }
+        } else if (namedArgs.length > 0) {
+          parts.push(`const result = app.${method}({${namedArgs.join(", ")}});`);
+        } else {
+          parts.push(`const result = app.${method}();`);
+        }
+
+        parts.push(`JSON.stringify(result);`);
+        const jxa = parts.join("\n");
+
+        try {
+          return await executor.execute(jxa, "jxa");
+        } catch (e: any) {
+          return `Error: ${e.message}`;
+        }
+      },
+    });
   }
 }
 
-/** Register sdef classes as read/list tools. */
+/** Build the containment map from sdef classes (which classes contain which elements). */
+function buildContainment(sdef: Sdef): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const cls of sdef.classes) {
+    for (const el of cls.elements) {
+      if (!map.has(el.type)) map.set(el.type, []);
+      map.get(el.type)!.push(cls.name);
+    }
+  }
+  return map;
+}
+
+/** Register sdef classes as read tools. */
 export function registerClasses(
   server: FastMCP,
   sdef: Sdef,
@@ -115,175 +141,105 @@ export function registerClasses(
   executor: Executor
 ): void {
   const prefix = appName.toLowerCase().replace(/\s+/g, "_");
+  const containment = buildContainment(sdef);
+
+  // Skip text/formatting classes
+  const skip = new Set(["rich text", "paragraph", "word", "character", "attribute run", "attachment"]);
 
   for (const cls of sdef.classes) {
-    // Only create tools for classes with readable properties
+    if (skip.has(cls.name)) continue;
     const readableProps = cls.properties.filter((p) => p.access !== "w");
     if (readableProps.length === 0) continue;
 
-    // Skip generic/text classes
-    if (["rich text", "paragraph", "word", "character", "attribute run", "attachment"].includes(cls.name)) continue;
-
     const plural = cls.plural || `${cls.name}s`;
+    const propNames = readableProps.map((p) => p.name);
+
+    // List tool
     const listName = toolName(prefix, `list_${plural}`);
-    const getName = toolName(prefix, `get_${cls.name}`);
+    server.addTool({
+      name: listName,
+      description: `[${appName}] List ${plural}. Properties: ${propNames.join(", ")}`.slice(0, 500),
+      parameters: z.object({
+        limit: z.number().int().optional().describe("Max items (default 25)"),
+        parent: z.string().optional().describe("Parent object path in JXA dot notation, e.g. 'inbox' or 'accounts[0].mailboxes[0]'"),
+        properties: z.array(z.string()).optional().describe(`Properties to return. Available: ${propNames.join(", ")}`),
+      }),
+      execute: async (args: Record<string, any>) => {
+        const limit = args.limit ?? 25;
+        const props = args.properties ?? propNames.slice(0, 5);
+        const parent = args.parent ?? "";
+        const jxaPlural = jxaMethodName(plural);
+        const accessor = parent ? `app.${parent}.${jxaPlural}` : `app.${jxaPlural}`;
 
-    try {
-      // List tool: get all instances with key properties
-      server.addTool({
-        name: listName,
-        description: `[${appName}] List all ${plural}. ${cls.description || ""}`.trim().slice(0, 500),
-        parameters: z.object({
-          limit: z.number().int().optional().describe("Max items to return"),
-          properties: z.array(z.string()).optional().describe(`Properties to include. Available: ${readableProps.map((p) => p.name).join(", ")}`),
-        }),
-        execute: async (args: Record<string, any>) => {
-          const props = (args.properties as string[] | undefined) ?? readableProps.slice(0, 5).map((p) => p.name);
-          const limit = (args.limit as number | undefined) ?? 50;
-          const jxa = buildListJxa(appId, cls, props, limit);
-          try {
-            return await executor.execute(jxa, "jxa");
-          } catch (e: any) {
-            return `Error: ${e.message}`;
-          }
-        },
-      });
+        const propLines = (props as string[]).map((p: string) => {
+          const method = jxaMethodName(p);
+          return `    try { obj[${JSON.stringify(p)}] = item.${method}(); } catch(e) { obj[${JSON.stringify(p)}] = null; }`;
+        });
 
-      // Get tool: get a specific instance by index or name
-      server.addTool({
-        name: getName,
-        description: `[${appName}] Get a specific ${cls.name}. ${cls.description || ""}`.trim().slice(0, 500),
-        parameters: z.object({
-          index: z.number().int().optional().describe("1-based index"),
-          name: z.string().optional().describe("Name to match"),
-          properties: z.array(z.string()).optional().describe(`Properties to include. Available: ${readableProps.map((p) => p.name).join(", ")}`),
-        }),
-        execute: async (args: Record<string, any>) => {
-          const props = (args.properties as string[] | undefined) ?? readableProps.map((p) => p.name);
-          const jxa = buildGetJxa(appId, cls, args, props);
-          try {
-            return await executor.execute(jxa, "jxa");
-          } catch (e: any) {
-            return `Error: ${e.message}`;
-          }
-        },
-      });
-    } catch (e: any) {
-      console.error(`[osa-mcp] Failed to register class tools for ${cls.name}: ${e.message}`);
-    }
-  }
-}
-
-/** Build JXA for executing a command. */
-function buildCommandJxa(
-  appId: string,
-  cmd: SdefCommand,
-  args: Record<string, any>
-): string {
-  const methodName = cmd.name.replace(/\s+/g, "");
-  // JXA method names are camelCase versions of the sdef command name
-  const jxaMethod = methodName.charAt(0).toLowerCase() + methodName.slice(1);
-
-  const parts: string[] = [`const app = Application("${jxaEscape(appId)}");`];
-
-  // Build the call
-  if (cmd.directParam && args.target !== undefined) {
-    if (cmd.params.length > 0) {
-      const paramObj = buildParamObject(cmd, args);
-      parts.push(`const result = app.${jxaMethod}("${jxaEscape(String(args.target))}", ${paramObj});`);
-    } else {
-      parts.push(`const result = app.${jxaMethod}("${jxaEscape(String(args.target))}");`);
-    }
-  } else if (cmd.params.length > 0) {
-    const paramObj = buildParamObject(cmd, args);
-    parts.push(`const result = app.${jxaMethod}(${paramObj});`);
-  } else {
-    parts.push(`const result = app.${jxaMethod}();`);
-  }
-
-  parts.push("JSON.stringify(result);");
-  return parts.join("\n");
-}
-
-/** Build a JXA parameter object from sdef params and user args. */
-function buildParamObject(cmd: SdefCommand, args: Record<string, any>): string {
-  const entries: string[] = [];
-  for (const p of cmd.params) {
-    const argName = p.name.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "");
-    if (args[argName] === undefined) continue;
-    const jxaKey = p.name.replace(/\s+/g, "");
-    const camelKey = jxaKey.charAt(0).toLowerCase() + jxaKey.slice(1);
-    const val = typeof args[argName] === "string"
-      ? `"${jxaEscape(args[argName])}"`
-      : JSON.stringify(args[argName]);
-    entries.push(`${camelKey}: ${val}`);
-  }
-  return `{${entries.join(", ")}}`;
-}
-
-/** Build JXA for listing class instances. */
-function buildListJxa(
-  appId: string,
-  cls: SdefClass,
-  props: string[],
-  limit: number
-): string {
-  const plural = cls.plural || `${cls.name}s`;
-  const jxaPlural = plural.replace(/\s+/g, "");
-  const jxaPluralMethod = jxaPlural.charAt(0).toLowerCase() + jxaPlural.slice(1);
-
-  const propAccessors = props.map((p) => {
-    const jxaP = p.replace(/\s+/g, "");
-    const method = jxaP.charAt(0).toLowerCase() + jxaP.slice(1);
-    return `try { obj["${jxaEscape(p)}"] = item.${method}(); } catch(e) {}`;
-  });
-
-  return `
-const app = Application("${jxaEscape(appId)}");
-const items = app.${jxaPluralMethod}();
+        const jxa = `const app = Application(${JSON.stringify(appId)});
+const items = ${accessor}();
 const count = Math.min(items.length, ${limit});
 const result = [];
 for (let i = 0; i < count; i++) {
   const item = items[i];
-  const obj = {};
-  ${propAccessors.join("\n  ")}
+  const obj = {_index: i};
+${propLines.join("\n")}
   result.push(obj);
 }
-JSON.stringify(result);
-`.trim();
-}
+JSON.stringify(result);`;
 
-/** Build JXA for getting a specific class instance. */
-function buildGetJxa(
-  appId: string,
-  cls: SdefClass,
-  args: Record<string, any>,
-  props: string[]
-): string {
-  const plural = cls.plural || `${cls.name}s`;
-  const jxaPlural = plural.replace(/\s+/g, "");
-  const jxaPluralMethod = jxaPlural.charAt(0).toLowerCase() + jxaPlural.slice(1);
+        try {
+          return await executor.execute(jxa, "jxa");
+        } catch (e: any) {
+          return `Error: ${e.message}`;
+        }
+      },
+    });
 
-  let accessor: string;
-  if (args.name) {
-    accessor = `app.${jxaPluralMethod}.byName("${jxaEscape(args.name)}")`;
-  } else if (args.index) {
-    accessor = `app.${jxaPluralMethod}[${args.index - 1}]`;
-  } else {
-    accessor = `app.${jxaPluralMethod}[0]`;
-  }
+    // Get tool
+    const getName = toolName(prefix, `get_${cls.name}`);
+    server.addTool({
+      name: getName,
+      description: `[${appName}] Get a ${cls.name} by index or name. Properties: ${propNames.join(", ")}`.slice(0, 500),
+      parameters: z.object({
+        index: z.number().int().optional().describe("0-based index"),
+        name: z.string().optional().describe("Name to match"),
+        id: z.number().int().optional().describe("ID to match"),
+        parent: z.string().optional().describe("Parent object path in JXA dot notation"),
+        properties: z.array(z.string()).optional().describe(`Properties to return. Available: ${propNames.join(", ")}`),
+      }),
+      execute: async (args: Record<string, any>) => {
+        const props = args.properties ?? propNames;
+        const parent = args.parent ?? "";
+        const jxaPlural = jxaMethodName(plural);
+        const base = parent ? `app.${parent}.${jxaPlural}` : `app.${jxaPlural}`;
 
-  const propAccessors = props.map((p) => {
-    const jxaP = p.replace(/\s+/g, "");
-    const method = jxaP.charAt(0).toLowerCase() + jxaP.slice(1);
-    return `try { obj["${jxaEscape(p)}"] = item.${method}(); } catch(e) {}`;
-  });
+        let accessor: string;
+        if (args.id !== undefined) {
+          accessor = `${base}.byId(${args.id})`;
+        } else if (args.name !== undefined) {
+          accessor = `${base}.byName(${JSON.stringify(args.name)})`;
+        } else {
+          accessor = `${base}[${args.index ?? 0}]`;
+        }
 
-  return `
-const app = Application("${jxaEscape(appId)}");
+        const propLines = (props as string[]).map((p: string) => {
+          const method = jxaMethodName(p);
+          return `  try { obj[${JSON.stringify(p)}] = item.${method}(); } catch(e) { obj[${JSON.stringify(p)}] = null; }`;
+        });
+
+        const jxa = `const app = Application(${JSON.stringify(appId)});
 const item = ${accessor};
 const obj = {};
-${propAccessors.join("\n")}
-JSON.stringify(obj);
-`.trim();
+${propLines.join("\n")}
+JSON.stringify(obj);`;
+
+        try {
+          return await executor.execute(jxa, "jxa");
+        } catch (e: any) {
+          return `Error: ${e.message}`;
+        }
+      },
+    });
+  }
 }
