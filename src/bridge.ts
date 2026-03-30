@@ -30,6 +30,7 @@ $.NSRunLoop.currentRunLoop.runUntilDate(
 query.stopQuery;
 
 var apps = [];
+var errors = [];
 for (var i = 0; i < query.resultCount; i++) {
   var item = query.resultAtIndex(i);
   var path = item.valueForAttribute("kMDItemPath");
@@ -51,19 +52,23 @@ for (var i = 0; i < query.resultCount; i++) {
   if (sdefName.indexOf(".") < 0) sdefName = sdefName + ".sdef";
   var sdefPath = path.js + "/Contents/Resources/" + sdefName;
 
-  try {
-    var url = $.NSURL.fileURLWithPath(sdefPath);
-    var error = $();
-    var xmlDoc = $.NSXMLDocument.alloc.initWithContentsOfURLOptionsError(
-      url, $.NSXMLDocumentXInclude, error
-    );
-    if (!xmlDoc || error[0]) continue;
-    var xml = xmlDoc.XMLString;
-    if (!xml) continue;
-    apps.push({ name: name, bundleId: bundleId, sdef: xml.js ? xml.js : "" + xml });
-  } catch(e) {}
+  var url = $.NSURL.fileURLWithPath(sdefPath);
+  var error = $();
+  var xmlDoc = $.NSXMLDocument.alloc.initWithContentsOfURLOptionsError(
+    url, $.NSXMLDocumentXInclude, error
+  );
+  if (!xmlDoc || error[0]) {
+    errors.push({ name: name, error: error[0] ? "" + error[0].localizedDescription : "load failed" });
+    continue;
+  }
+  var xml = xmlDoc.XMLString;
+  if (!xml) {
+    errors.push({ name: name, error: "XMLString nil" });
+    continue;
+  }
+  apps.push({ name: name, bundleId: bundleId, sdef: xml.js ? xml.js : "" + xml });
 }
-JSON.stringify(apps);
+JSON.stringify({ apps: apps, errors: errors });
 `;
 
 /**

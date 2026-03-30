@@ -102,13 +102,19 @@ async function discoverAndList(): Promise<void> {
 async function loadAllApps(): Promise<void> {
   console.error("[osa-mcp] Loading all scriptable apps...");
   const raw = await executor.execute(DISCOVER_AND_LOAD_JXA, "jxa");
-  const apps = JSON.parse(raw) as Array<{
-    name: string;
-    bundleId: string | null;
-    sdef: string;
-  }>;
+  const result = JSON.parse(raw) as {
+    apps: Array<{ name: string; bundleId: string | null; sdef: string }>;
+    errors: Array<{ name: string; error: string }>;
+  };
+  const apps = result.apps;
 
   console.error(`[osa-mcp] ${apps.length} apps loaded`);
+  if (result.errors.length > 0) {
+    console.error(`[osa-mcp] ${result.errors.length} apps failed to load:`);
+    for (const e of result.errors) {
+      console.error(`  ${e.name}: ${e.error}`);
+    }
+  }
 
   let totalTools = 0;
   for (const app of apps) {
