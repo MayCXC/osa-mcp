@@ -92,17 +92,8 @@ export class Executor {
     return result.stdout;
   }
 
-  /** Run arbitrary AppleScript or JXA. */
+  /** Run arbitrary AppleScript or JXA. Routes through dispatch.js. */
   async execute(code: string, language: Language = "jxa"): Promise<string> {
-    if (language === "jxa") return this.dispatch("execute", { code });
-
-    const result = this.isRemote
-      ? await runProcess("ssh", [this.sshHost!, "osascript", "-l", "AppleScript", "-"], code)
-      : await runProcess("/usr/bin/osascript", ["-l", "AppleScript", "-e", code]);
-
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr || `osascript exited with code ${result.exitCode}`);
-    }
-    return result.stdout;
+    return this.dispatch("execute", { code, language });
   }
 }

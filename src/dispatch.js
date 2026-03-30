@@ -128,6 +128,17 @@ function get(a) {
   return JSON.stringify(obj);
 }
 
+function execute(a) {
+  if (a.language === "applescript") {
+    const script = $.NSAppleScript.alloc.initWithSource(a.code);
+    const error = $();
+    const result = script.executeAndReturnError(error);
+    if (error[0]) return JSON.stringify({ error: error[0].objectForKey($.NSAppleScriptErrorMessage).js });
+    return result.stringValue ? result.stringValue.js : "";
+  }
+  return eval(a.code);
+}
+
 function run(argv) {
   if (!argv.length) return discover();
   const op = decodeStr(argv[0]);
@@ -135,7 +146,7 @@ function run(argv) {
     case "command":  return command(decode(argv[1]));
     case "list":     return list(decode(argv[1]));
     case "get":      return get(decode(argv[1]));
-    case "execute":  return eval(decode(argv[1]).code);
+    case "execute":  return execute(decode(argv[1]));
     default:         return JSON.stringify({ error: "unknown: " + op });
   }
 }
