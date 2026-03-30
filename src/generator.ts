@@ -69,75 +69,88 @@ function buildContainment(sdef: Sdef): Map<string, string[]> {
   return map;
 }
 
-// --- Static JXA templates (no interpolation) ---
-// These reference __args for all user data and __meta for sdef-derived constants.
+// --- Static JXA templates ---
+// Each is a complete self-contained script with function run(argv).
+// __meta is baked in at registration time (from sdef, safe).
+// argv[0] is base64-encoded JSON from the user (decoded at runtime).
 
-const COMMAND_JXA = `
-var app = Application(__meta.appId);
-var method = __meta.method;
-var paramKeys = __meta.paramKeys;
-var hasDirectParam = __meta.hasDirectParam;
-var namedArgs = {};
-for (var i = 0; i < paramKeys.length; i++) {
-  var pk = paramKeys[i];
-  if (__args[pk.argKey] !== undefined) namedArgs[pk.jxaKey] = __args[pk.argKey];
-}
-var hasNamed = Object.keys(namedArgs).length > 0;
-var result;
-if (hasDirectParam && __args.target !== undefined) {
-  result = hasNamed ? app[method](__args.target, namedArgs) : app[method](__args.target);
-} else if (hasNamed) {
-  result = app[method](namedArgs);
-} else {
-  result = app[method]();
-}
-JSON.stringify(result);
-`;
+const DECODE_PREAMBLE = `ObjC.import("Foundation");
+function __decode(b64) {
+  var d = $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
+  return JSON.parse($.NSString.alloc.initWithDataEncoding(d, 4).js);
+}`;
 
-const LIST_JXA = `
-var app = Application(__meta.appId);
-var limit = __args.limit || 25;
-var parent = __args.parent || "";
-var propMethods = __meta.propMethods;
-var pluralMethod = __meta.pluralMethod;
-var container = parent ? eval("app." + parent)[pluralMethod]() : app[pluralMethod]();
-var count = Math.min(container.length, limit);
-var result = [];
-for (var i = 0; i < count; i++) {
-  var item = container[i];
-  var obj = {_index: i};
+const COMMAND_JXA = `${DECODE_PREAMBLE}
+function run(argv) {
+  var __args = __decode(argv[0]);
+  var app = Application(__meta.appId);
+  var method = __meta.method;
+  var paramKeys = __meta.paramKeys;
+  var namedArgs = {};
+  for (var i = 0; i < paramKeys.length; i++) {
+    var pk = paramKeys[i];
+    if (__args[pk.argKey] !== undefined) namedArgs[pk.jxaKey] = __args[pk.argKey];
+  }
+  var hasNamed = Object.keys(namedArgs).length > 0;
+  var result;
+  if (__meta.hasDirectParam && __args.target !== undefined) {
+    result = hasNamed ? app[method](__args.target, namedArgs) : app[method](__args.target);
+  } else if (hasNamed) {
+    result = app[method](namedArgs);
+  } else {
+    result = app[method]();
+  }
+  return JSON.stringify(result);
+}`;
+
+const LIST_JXA = `${DECODE_PREAMBLE}
+function run(argv) {
+  var __args = __decode(argv[0]);
+  var app = Application(__meta.appId);
+  var limit = __args.limit || 25;
+  var parent = __args.parent || "";
+  var propMethods = __meta.propMethods;
+  var pluralMethod = __meta.pluralMethod;
+  var container = parent ? eval("app." + parent)[pluralMethod]() : app[pluralMethod]();
+  var count = Math.min(container.length, limit);
+  var result = [];
+  for (var i = 0; i < count; i++) {
+    var item = container[i];
+    var obj = {_index: i};
+    for (var j = 0; j < propMethods.length; j++) {
+      var pm = propMethods[j];
+      if (__args.properties && __args.properties.indexOf(pm.name) < 0) continue;
+      try { obj[pm.name] = item[pm.method](); } catch(e) { obj[pm.name] = null; }
+    }
+    result.push(obj);
+  }
+  return JSON.stringify(result);
+}`;
+
+const GET_JXA = `${DECODE_PREAMBLE}
+function run(argv) {
+  var __args = __decode(argv[0]);
+  var app = Application(__meta.appId);
+  var parent = __args.parent || "";
+  var propMethods = __meta.propMethods;
+  var pluralMethod = __meta.pluralMethod;
+  var base = parent ? eval("app." + parent)[pluralMethod] : app[pluralMethod];
+  var item;
+  if (__args.id !== undefined) {
+    item = base.byId(__args.id);
+  } else if (__args.name !== undefined) {
+    item = base.byName(__args.name);
+  } else {
+    item = base[__args.index || 0];
+  }
+  var obj = {};
   for (var j = 0; j < propMethods.length; j++) {
     var pm = propMethods[j];
     if (__args.properties && __args.properties.indexOf(pm.name) < 0) continue;
     try { obj[pm.name] = item[pm.method](); } catch(e) { obj[pm.name] = null; }
   }
-  result.push(obj);
-}
-JSON.stringify(result);
-`;
-
-const GET_JXA = `
-var app = Application(__meta.appId);
-var parent = __args.parent || "";
-var propMethods = __meta.propMethods;
-var pluralMethod = __meta.pluralMethod;
-var base = parent ? eval("app." + parent)[pluralMethod] : app[pluralMethod];
-var item;
-if (__args.id !== undefined) {
-  item = base.byId(__args.id);
-} else if (__args.name !== undefined) {
-  item = base.byName(__args.name);
-} else {
-  item = base[__args.index || 0];
-}
-var obj = {};
-for (var j = 0; j < propMethods.length; j++) {
-  var pm = propMethods[j];
-  if (__args.properties && __args.properties.indexOf(pm.name) < 0) continue;
-  try { obj[pm.name] = item[pm.method](); } catch(e) { obj[pm.name] = null; }
-}
-JSON.stringify(obj);
-`;
+  return JSON.stringify(obj);
+}`;
 
 /** Register sdef commands as MCP tools. */
 export function registerCommands(

@@ -74,23 +74,18 @@ export class Executor {
     return !!this.sshHost;
   }
 
-  /** Execute a script string. Optionally pass data as a JSON payload
-   *  accessible as `__args` in the JXA code. Data is embedded as a
-   *  string literal, never interpolated into code. */
+  /** Execute a script. If data is provided, it's base64-encoded and
+   *  passed as argv[0]. The script must use `function run(argv)` to receive it. */
   async execute(code: string, language: Language = "jxa", data?: unknown): Promise<string> {
     const langFlag = language === "jxa" ? "JavaScript" : "AppleScript";
-
-    let fullCode = code;
-    if (data !== undefined) {
-      // Embed data as a JSON.parse of a string literal.
-      // JSON.stringify produces a safely escaped JS string literal.
-      fullCode = `var __args = JSON.parse(${JSON.stringify(JSON.stringify(data))});\n${code}`;
-    }
+    const dataArg = data !== undefined
+      ? Buffer.from(JSON.stringify(data)).toString("base64")
+      : undefined;
 
     if (this.isRemote) {
-      return this.executeRemote(fullCode, langFlag);
+      return this.executeRemote(code, langFlag, dataArg);
     }
-    return this.executeLocal(fullCode, langFlag);
+    return this.executeLocal(code, langFlag, dataArg);
   }
 
   /** Read a file from the macOS host. */
@@ -129,18 +124,16 @@ export class Executor {
     return result.stdout;
   }
 
-  private async executeLocal(code: string, langFlag: string): Promise<string> {
+  private async executeLocal(code: string, langFlag: string, dataArg?: string): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "osa-"));
     const ext = langFlag === "JavaScript" ? ".js" : ".scpt";
     const path = join(dir, `script${ext}`);
 
     try {
       await writeFile(path, code, "utf-8");
-      const result = await runProcess(
-        "/usr/bin/osascript",
-        ["-l", langFlag, path],
-        this.timeout
-      );
+      const args = ["-l", langFlag, path];
+      if (dataArg) args.push(dataArg);
+      const result = await runProcess("/usr/bin/osascript", args, this.timeout);
       if (result.exitCode !== 0) {
         throw new Error(result.stderr || `osascript exited with code ${result.exitCode}`);
       }
@@ -150,13 +143,12 @@ export class Executor {
     }
   }
 
-  private async executeRemote(code: string, langFlag: string): Promise<string> {
+  private async executeRemote(code: string, langFlag: string, dataArg?: string): Promise<string> {
+    const sshArgs = [this.sshHost!, "osascript", "-l", langFlag, "-"];
+    if (dataArg) sshArgs.push(dataArg);
+
     return new Promise((resolve, reject) => {
-      const proc = spawn(
-        "ssh",
-        [this.sshHost!, "osascript", "-l", langFlag, "-"],
-        { stdio: ["pipe", "pipe", "pipe"] }
-      );
+      const proc = spawn("ssh", sshArgs, { stdio: ["pipe", "pipe", "pipe"] });
 
       let stdout = "";
       let stderr = "";
