@@ -30,6 +30,7 @@ const args = process.argv.slice(2);
 let sshHost = process.env.OSA_SSH_HOST;
 const apps: string[] = process.env.OSA_APPS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
 let timeout = Number(process.env.OSA_TIMEOUT) || 30000;
+let discover = false;
 
 for (let i = 0; i < args.length; i++) {
   switch (args[i]) {
@@ -41,6 +42,9 @@ for (let i = 0; i < args.length; i++) {
       break;
     case "--timeout":
       timeout = Number(args[++i]);
+      break;
+    case "--discover":
+      discover = true;
       break;
   }
 }
@@ -69,8 +73,30 @@ server.addTool({
   },
 });
 
+// List all scriptable apps on the host
+async function listScriptableApps(): Promise<void> {
+  console.error("[osa-mcp] Discovering scriptable apps...");
+  try {
+    const output = await executor.run("find", [
+      "/System/Applications", "/Applications",
+      "-name", "'*.sdef'", "-type", "f",
+    ]);
+    for (const line of output.split("\n").filter(Boolean)) {
+      const match = line.match(/\/([^/]+)\.app\/Contents\/Resources\/(.+\.sdef)$/);
+      if (match) {
+        console.error(`  ${match[1]} (${match[2]})`);
+      }
+    }
+  } catch (e: any) {
+    console.error(`[osa-mcp] Discovery failed: ${e.message}`);
+  }
+  process.exit(0);
+}
+
 // Discover and register tools from sdef files
 async function discoverApps(): Promise<void> {
+  if (discover) return listScriptableApps();
+
   if (apps.length === 0) {
     console.error("[osa-mcp] No apps specified. Use --app or OSA_APPS env var.");
     console.error("[osa-mcp] Starting with execute tool only.");
@@ -97,34 +123,28 @@ async function discoverApps(): Promise<void> {
         continue;
       }
 
-      // Read the sdef file. Try the app bundle first, then the sdef CLI tool.
-      const basename = cleanPath.split("/").pop()?.replace(/\.app$/, "") ?? appName;
-      const candidates = [
-        `${cleanPath}/Contents/Resources/${appName}.sdef`,
-        `${cleanPath}/Contents/Resources/${basename}.sdef`,
-      ];
-
+      // Find the sdef file in the app bundle
       let sdefXml: string | null = null;
-      for (const path of candidates) {
-        try {
-          sdefXml = await executor.readFile(path);
-          break;
-        } catch {}
-      }
+      let appId = cleanPath.split("/").pop()?.replace(/\.app$/, "") ?? appName;
+
+      try {
+        // Find any .sdef in the Resources directory
+        const sdefPath = await executor.run("find", [
+          `${cleanPath}/Contents/Resources`, "-name", "'*.sdef'", "-type", "f",
+        ]).then((s) => s.split("\n")[0]?.trim());
+
+        if (sdefPath) {
+          sdefXml = await executor.readFile(sdefPath);
+        }
+      } catch {}
 
       if (!sdefXml) {
-        // Fall back to sdef CLI (requires Xcode)
-        try {
-          sdefXml = await executor.run("sdef", [cleanPath]);
-        } catch {
-          console.error(`[osa-mcp] No sdef found for ${appName}`);
-          continue;
-        }
+        console.error(`[osa-mcp] No sdef found for ${appName} in ${cleanPath}`);
+        continue;
       }
 
       // Parse and register
       const sdef = parseSdef(sdefXml);
-      const appId = basename;
 
       console.error(`[osa-mcp] ${appName}: ${sdef.commands.length} commands, ${sdef.classes.length} classes`);
 
