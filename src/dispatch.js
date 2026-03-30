@@ -129,14 +129,19 @@ function get(a) {
 }
 
 function execute(a) {
-  if (a.language === "applescript") {
-    const script = $.NSAppleScript.alloc.initWithSource(a.code);
-    const error = $();
-    const result = script.executeAndReturnError(error);
-    if (error[0]) return JSON.stringify({ error: error[0].objectForKey($.NSAppleScriptErrorMessage).js });
-    return result.stringValue ? result.stringValue.js : "";
+  switch (a.language) {
+    case "applescript": {
+      const script = $.NSAppleScript.alloc.initWithSource(a.code);
+      const error = $();
+      const result = script.executeAndReturnError(error);
+      if (error[0]) return JSON.stringify({ error: error[0].objectForKey($.NSAppleScriptErrorMessage).js });
+      return result.stringValue ? result.stringValue.js : "";
+    }
+    case "jxa":
+      return eval(a.code);
+    default:
+      return JSON.stringify({ error: "unknown language: " + a.language });
   }
-  return eval(a.code);
 }
 
 function run(argv) {
