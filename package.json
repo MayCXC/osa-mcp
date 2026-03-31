@@ -21,12 +21,10 @@
     "osa-mcp-windows-x64": "0.1.0",
     "osa-mcp-windows-arm64": "0.1.0"
   },
-  "dependencies": {
+  "devDependencies": {
+    "@types/bun": "latest",
     "fast-xml-parser": "^5.5.9",
     "fastmcp": "^3.34.0",
     "zod": "^4.3.6"
-  },
-  "devDependencies": {
-    "@types/bun": "latest"
   }
 }
