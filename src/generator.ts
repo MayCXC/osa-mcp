@@ -17,7 +17,7 @@ function toolName(prefix: string, name: string): string {
 
 function jxaMethodName(sdefName: string): string {
   const words = sdefName.split(/\s+/);
-  return words[0].toLowerCase() + words.slice(1).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
+  return words[0]!.toLowerCase() + words.slice(1).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
 }
 
 function sdefTypeToZod(

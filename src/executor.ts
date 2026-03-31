@@ -11,7 +11,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import dispatchScript from "./dispatch.js" with { type: "text" };
 
 export interface ExecutorOptions {
-  sshHost?: string;
+  sshHost?: string | undefined;
 }
 
 interface ExecResult {
@@ -41,8 +41,8 @@ function runProcess(cmd: string, args: string[], stdin?: string): Promise<ExecRe
     let stdout = "";
     let stderr = "";
 
-    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+    proc.stdout!.on("data", (d: Buffer) => { stdout += d.toString(); });
+    proc.stderr!.on("data", (d: Buffer) => { stderr += d.toString(); });
     proc.on("close", (code) => {
       children.delete(proc);
       resolve({ stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), exitCode: code ?? 1 });
@@ -60,7 +60,7 @@ function runProcess(cmd: string, args: string[], stdin?: string): Promise<ExecRe
 }
 
 export class Executor {
-  private sshHost?: string;
+  private sshHost?: string | undefined;
 
   constructor(opts: ExecutorOptions = {}) {
     this.sshHost = opts.sshHost;
