@@ -75,7 +75,7 @@ On a typical Mac, osa-mcp generates ~700 tools in ~4 seconds. Every tool include
 - `finder_get_application` returns desktop, trash, home, startup disk, etc.
 - `music_get_application` returns current track, player state, etc.
 
-**Execute** runs arbitrary JXA or AppleScript for anything the generated tools don't cover.
+**Execute** runs arbitrary AppleScript or JXA for anything the generated tools don't cover.
 
 ## Navigating the object hierarchy
 
