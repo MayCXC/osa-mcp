@@ -11,16 +11,6 @@
   "files": [
     "src"
   ],
-  "optionalDependencies": {
-    "osa-mcp-darwin-arm64": "0.2.1",
-    "osa-mcp-darwin-x64": "0.2.1",
-    "osa-mcp-linux-x64": "0.2.1",
-    "osa-mcp-linux-arm64": "0.2.1",
-    "osa-mcp-linux-x64-musl": "0.2.1",
-    "osa-mcp-linux-arm64-musl": "0.2.1",
-    "osa-mcp-windows-x64": "0.2.1",
-    "osa-mcp-windows-arm64": "0.2.1"
-  },
   "devDependencies": {
     "@types/bun": "latest",
     "fast-xml-parser": "^5.5.9",
