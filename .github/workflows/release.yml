@@ -130,12 +130,16 @@ jobs:
           files: release/*
           generate_release_notes: true
 
+      # npm: setup auth (OIDC provenance if trusted publishers configured, token fallback)
+      - name: Setup npm auth
+        run: |
+          if [ -n "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> ~/.npmrc
+          fi
+
       # npm: publish platform packages
       - name: Publish platform packages to npm
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
           for dir in artifacts/npm-osa-mcp-*; do
             echo "Publishing $(basename $dir)..."
             cd "$dir"
@@ -145,8 +149,6 @@ jobs:
 
       # npm: publish root package
       - name: Publish root package to npm
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           jq ".version = \"$VERSION\"" package.json > package.json.tmp && mv package.json.tmp package.json
