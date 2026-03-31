@@ -1,4 +1,5 @@
 require "digest"
+require "utils/inreplace"
 
 version = ARGV[0]
 release_dir = ARGV[1]
@@ -6,14 +7,6 @@ abort "Usage: ruby scripts/bump-formula.rb <version> [release-dir]" unless versi
 
 version = version.delete_prefix("v")
 formula_path = File.join(__dir__, "..", "Formula", "osa-mcp.rb")
-
-# Try Homebrew's Inreplace, fall back to manual sub
-begin
-  require "utils/inreplace"
-  use_inreplace = true
-rescue LoadError
-  use_inreplace = false
-end
 
 platforms = %w[darwin-arm64 darwin-x64 linux-arm64 linux-x64]
 
@@ -36,20 +29,11 @@ shas = platforms.to_h do |platform|
   [platform, sha]
 end
 
-if use_inreplace
-  Utils::Inreplace.inreplace formula_path do |s|
-    s.gsub!(/version "[^"]*"/, "version \"#{version}\"")
-    shas.each do |platform, sha|
-      s.gsub!(/(osa-mcp-#{Regexp.escape(platform)}.*?\n\s+sha256 )"[^"]*"/, "\\1\"#{sha}\"")
-    end
-  end
-else
-  formula = File.read(formula_path)
-  formula.sub!(/version "[^"]*"/, "version \"#{version}\"")
+Utils::Inreplace.inreplace formula_path do |s|
+  s.gsub!(/version "[^"]*"/, "version \"#{version}\"")
   shas.each do |platform, sha|
-    formula.sub!(/(osa-mcp-#{Regexp.escape(platform)}.*?\n\s+sha256 )"[^"]*"/) { "#{$1}\"#{sha}\"" }
+    s.gsub!(/(osa-mcp-#{Regexp.escape(platform)}.*?\n\s+sha256 )"[^"]*"/, "\\1\"#{sha}\"")
   end
-  File.write(formula_path, formula)
 end
 
 puts "Updated #{formula_path}"
