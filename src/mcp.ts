@@ -89,4 +89,4 @@ async function main(): Promise<void> {
   server.start({ transportType: "stdio" });
 }
 
-await main();
+main();

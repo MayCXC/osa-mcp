@@ -1,10 +1,25 @@
 {
   "name": "osa-mcp",
   "version": "0.1.0",
+  "description": "MCP server that discovers macOS scriptable apps and generates tools from sdef files",
   "type": "module",
-  "private": true,
-  "bin": {
-    "osa-mcp": "./src/mcp.ts"
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MayCXC/osa-mcp.git"
+  },
+  "files": [
+    "src"
+  ],
+  "optionalDependencies": {
+    "osa-mcp-darwin-arm64": "0.1.0",
+    "osa-mcp-darwin-x64": "0.1.0",
+    "osa-mcp-linux-x64": "0.1.0",
+    "osa-mcp-linux-arm64": "0.1.0",
+    "osa-mcp-linux-x64-musl": "0.1.0",
+    "osa-mcp-linux-arm64-musl": "0.1.0",
+    "osa-mcp-windows-x64": "0.1.0",
+    "osa-mcp-windows-arm64": "0.1.0"
   },
   "dependencies": {
     "fast-xml-parser": "^5.5.9",

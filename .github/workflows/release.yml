@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  BUN_COMPILE_FLAGS: --compile --minify --bytecode --external effect --external sury --external '@valibot/to-json-schema'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: bun-darwin-arm64
+            npm: osa-mcp-darwin-arm64
+            os: '["darwin"]'
+            cpu: '["arm64"]'
+            ext: ""
+          - target: bun-darwin-x64
+            npm: osa-mcp-darwin-x64
+            os: '["darwin"]'
+            cpu: '["x64"]'
+            ext: ""
+          - target: bun-linux-x64
+            npm: osa-mcp-linux-x64
+            os: '["linux"]'
+            cpu: '["x64"]'
+            ext: ""
+          - target: bun-linux-arm64
+            npm: osa-mcp-linux-arm64
+            os: '["linux"]'
+            cpu: '["arm64"]'
+            ext: ""
+          - target: bun-linux-x64-musl
+            npm: osa-mcp-linux-x64-musl
+            os: '["linux"]'
+            cpu: '["x64"]'
+            ext: ""
+          - target: bun-linux-arm64-musl
+            npm: osa-mcp-linux-arm64-musl
+            os: '["linux"]'
+            cpu: '["arm64"]'
+            ext: ""
+          - target: bun-windows-x64
+            npm: osa-mcp-windows-x64
+            os: '["win32"]'
+            cpu: '["x64"]'
+            ext: ".exe"
+          - target: bun-windows-arm64
+            npm: osa-mcp-windows-arm64
+            os: '["win32"]'
+            cpu: '["arm64"]'
+            ext: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Compile
+        run: bun build ${{ env.BUN_COMPILE_FLAGS }} --target=${{ matrix.target }} src/mcp.ts --outfile dist/osa-mcp${{ matrix.ext }}
+
+      - name: Package npm
+        run: |
+          mkdir -p npm-pkg
+          cp dist/osa-mcp${{ matrix.ext }} npm-pkg/
+          VERSION=${GITHUB_REF_NAME#v}
+          cat npm/package.json.tmpl \
+            | sed "s|{{NAME}}|${{ matrix.npm }}|" \
+            | sed "s|{{VERSION}}|$VERSION|" \
+            | sed "s|{{PLATFORM}}|${{ matrix.target }}|" \
+            | sed "s|{{OS}}|${{ matrix.os }}|" \
+            | sed "s|{{CPU}}|${{ matrix.cpu }}|" \
+            | sed "s|{{EXT}}|${{ matrix.ext }}|" \
+            > npm-pkg/package.json
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.npm }}
+          path: dist/osa-mcp${{ matrix.ext }}
+
+      - name: Upload npm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.npm }}
+          path: npm-pkg/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      # Rename binaries for release (include platform in filename)
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for dir in artifacts/osa-mcp-*/; do
+            name=$(basename "$dir")
+            for f in "$dir"/*; do
+              base=$(basename "$f")
+              if [ "$base" = "osa-mcp.exe" ]; then
+                cp "$f" "release/${name}.exe"
+              elif [ "$base" = "osa-mcp" ]; then
+                cp "$f" "release/${name}"
+              fi
+            done
+          done
+
+      # GitHub Release
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+
+      # npm: publish platform packages
+      - name: Publish platform packages to npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+          for dir in artifacts/npm-osa-mcp-*; do
+            echo "Publishing $(basename $dir)..."
+            cd "$dir"
+            npm publish --access public --provenance
+            cd -
+          done
+
+      # npm: publish root package
+      - name: Publish root package to npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          jq ".version = \"$VERSION\"" package.json > package.json.tmp && mv package.json.tmp package.json
+          npm publish --access public --provenance
+
+  docker:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            artifact: osa-mcp-linux-x64
+          - platform: linux/arm64
+            artifact: osa-mcp-linux-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: .
+
+      - name: Make executable
+        run: chmod +x osa-mcp
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: |
+            ghcr.io/maycxc/osa-mcp:${{ github.ref_name }}
+            ghcr.io/maycxc/osa-mcp:latest
+            maycxc/osa-mcp:${{ github.ref_name }}
+            maycxc/osa-mcp:latest
