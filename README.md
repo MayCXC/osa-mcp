@@ -4,7 +4,7 @@
 
 osa-mcp is an MCP server that automatically discovers all scriptable macOS apps (Mail, Calendar, Finder, Music, Notes, Safari, &c.) and generates tools for them. No configuration, no hardcoded app list. Just connect and go.
 
-## Setup
+## What you do
 
 ### npx
 
