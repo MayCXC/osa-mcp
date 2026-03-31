@@ -4,39 +4,43 @@ Give your AI access to every scriptable app on your Mac.
 
 osa-mcp is an MCP server that automatically discovers all scriptable macOS apps (Mail, Calendar, Finder, Music, Notes, Safari, and more) and generates tools for them. No configuration, no hardcoded app list. Just connect and go.
 
-## Quick start
+## Setup
 
-### npx (no install needed)
+### npx
 
 ```sh
-npx osa-mcp
+claude mcp add my-mac -- npx -y osa-mcp
 ```
 
 ### Homebrew
 
 ```sh
 brew install MayCXC/osa-mcp/osa-mcp
-osa-mcp
+claude mcp add my-mac -- osa-mcp
 ```
 
 ### Docker
 
 ```sh
-docker run -i --rm ghcr.io/maycxc/osa-mcp
+claude mcp add my-mac -- docker run -i --rm ghcr.io/maycxc/osa-mcp
 ```
 
-### Add to Claude Code
+### Remote Mac via SSH
+
+If your AI runs on a different machine, connect to your Mac over SSH. Enable Remote Login in System Settings > General > Sharing first.
 
 ```sh
-claude mcp add macbook -- osa-mcp
+claude mcp add my-mac -- npx -y osa-mcp --ssh user@macbook.local
 ```
 
-Or add to your MCP settings manually:
+### JSON config
+
+All of the above can also be added to your MCP settings file directly:
 
 ```json
 {
   "mcpServers": {
-    "macbook": {
+    "my-mac": {
       "type": "stdio",
       "command": "npx",
       "args": ["-y", "osa-mcp"]
@@ -45,13 +49,7 @@ Or add to your MCP settings manually:
 }
 ```
 
-### Remote Mac via SSH
-
-If your AI runs on a different machine (a container, a server, a VM), connect to your Mac over SSH:
-
-```sh
-osa-mcp --ssh user@macbook.local
-```
+For SSH, add `"--ssh", "user@macbook.local"` to the args.
 
 ## What you get
 
@@ -77,9 +75,7 @@ On a typical Mac, osa-mcp generates ~700 tools in ~4 seconds. Every tool include
 - `finder_get_application` returns desktop, trash, home, startup disk, etc.
 - `music_get_application` returns current track, player state, etc.
 
-**Execute** runs arbitrary JXA or AppleScript for anything the generated tools don't cover:
-- `execute` with `language: "jxa"` for JavaScript for Automation
-- `execute` with `language: "applescript"` for AppleScript
+**Execute** runs arbitrary JXA or AppleScript for anything the generated tools don't cover.
 
 ## Navigating the object hierarchy
 
@@ -98,18 +94,6 @@ Many tools accept a `parent` parameter for navigating into nested objects:
 
 Path steps: `"key"` accesses a property, `0` accesses by index, `[]` calls a method, `["arg"]` calls with arguments.
 
-## How it works
-
-At startup, osa-mcp runs a single JXA script on your Mac that:
-
-1. Queries Launch Services to find every app with a scripting dictionary
-2. Loads each dictionary with full XInclude resolution (so Standard Suite commands are included)
-3. Returns everything to the MCP server
-
-The server parses the dictionaries and registers tools. Each tool's description, parameter names, types, and valid values all come directly from the app's own documentation. Enum parameters include descriptions of each value. Class tools describe their properties and containment relationships.
-
-No API keys. No cloud services. Everything runs locally between the MCP client and your Mac.
-
 ## Install from source
 
 ```sh
@@ -117,6 +101,7 @@ git clone https://github.com/MayCXC/osa-mcp.git
 cd osa-mcp
 bun install
 bun link
+claude mcp add my-mac -- osa-mcp
 ```
 
 Requires [Bun](https://bun.sh).
