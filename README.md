@@ -27,7 +27,7 @@ claude mcp add my-mac -- osa-mcp
 
 ### Remote Mac via SSH
 
-If your AI runs on a different machine, connect to your Mac over SSH. Enable Remote Login in System Settings > General > Sharing first.
+If your AI runs on a different machine, connect to your Mac over SSH. Enable [Remote Login in System Settings > General > Sharing](https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac) first.
 
 ```sh
 claude mcp add my-mac -- npx -y osa-mcp --ssh user@macbook.local
