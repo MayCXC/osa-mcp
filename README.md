@@ -1,8 +1,8 @@
 # osa-mcp
 
-> Give your AI access to every scriptable app on your Mac.
+#### Give your AI access to every scriptable app on your Mac.
 
-osa-mcp is an MCP server that automatically discovers all scriptable macOS apps (Mail, Calendar, Finder, Music, Notes, Safari, and more) and generates tools for them. No configuration, no hardcoded app list. Just connect and go.
+osa-mcp is an MCP server that automatically discovers all scriptable macOS apps (Mail, Calendar, Finder, Music, Notes, Safari, &c.) and generates tools for them. No configuration, no hardcoded app list. Just connect and go.
 
 ## Setup
 
