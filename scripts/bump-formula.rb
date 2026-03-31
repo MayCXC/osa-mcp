@@ -1,14 +1,13 @@
 require "digest"
+require "erb"
 
 version = ARGV[0]
 release_dir = ARGV[1]
 abort "Usage: ruby scripts/bump-formula.rb <version> [release-dir]" unless version
 
 version = version.delete_prefix("v")
-formula_path = File.join(__dir__, "..", "Formula", "osa-mcp.rb")
-formula = File.read(formula_path)
 
-%w[darwin-arm64 darwin-x64 linux-arm64 linux-x64].each do |platform|
+shas = %w[darwin-arm64 darwin-x64 linux-arm64 linux-x64].to_h do |platform|
   if release_dir
     path = File.join(release_dir, "osa-mcp-#{platform}")
     abort "Missing binary: #{path}" unless File.exist?(path)
@@ -24,9 +23,11 @@ formula = File.read(formula_path)
     sha = Digest::SHA256.hexdigest(response.body)
   end
   puts "  #{platform}: #{sha}"
-  formula.sub!(/(osa-mcp-#{Regexp.escape(platform)}.*?\n\s+sha256 )"[^"]*"/) { "#{$1}\"#{sha}\"" }
+  [platform, sha]
 end
 
-formula.sub!(/version "[^"]*"/, "version \"#{version}\"")
-File.write(formula_path, formula)
+template_path = File.join(__dir__, "..", "Formula", "osa-mcp.rb.erb")
+formula_path = File.join(__dir__, "..", "Formula", "osa-mcp.rb")
+template = ERB.new(File.read(template_path))
+File.write(formula_path, template.result(binding))
 puts "Updated #{formula_path}"
