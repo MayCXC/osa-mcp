@@ -22,11 +22,11 @@ claude mcp add my-mac -- osa-mcp
 ### Docker
 
 ```sh
-claude mcp add my-mac -- docker run -i --rm ghcr.io/maycxc/osa-mcp
+claude mcp add my-mac -- docker run -i --rm ghcr.io/maycxc/osa-mcp --ssh user@macbook.local
 ```
 
 ```sh
-claude mcp add my-mac -- docker run -i --rm docker.io/maycxc/osa-mcp
+claude mcp add my-mac -- docker run -i --rm docker.io/maycxc/osa-mcp --ssh user@macbook.local
 ```
 
 ### Remote Mac via SSH
