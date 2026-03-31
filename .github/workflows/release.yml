@@ -180,19 +180,9 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
 
-      # Homebrew: update version and SHA256 hashes in existing formula
+      # Homebrew: update formula version and SHA256 hashes from release assets
       - name: Update Homebrew formula
-        run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          SHA_DARWIN_ARM64=$(sha256sum release/osa-mcp-darwin-arm64 | cut -d' ' -f1)
-          SHA_DARWIN_X64=$(sha256sum release/osa-mcp-darwin-x64 | cut -d' ' -f1)
-          SHA_LINUX_ARM64=$(sha256sum release/osa-mcp-linux-arm64 | cut -d' ' -f1)
-          SHA_LINUX_X64=$(sha256sum release/osa-mcp-linux-x64 | cut -d' ' -f1)
-          sed -i "s/version \".*\"/version \"$VERSION\"/" Formula/osa-mcp.rb
-          sed -i "/osa-mcp-darwin-arm64/{n;s/sha256 \".*\"/sha256 \"$SHA_DARWIN_ARM64\"/}" Formula/osa-mcp.rb
-          sed -i "/osa-mcp-darwin-x64/{n;s/sha256 \".*\"/sha256 \"$SHA_DARWIN_X64\"/}" Formula/osa-mcp.rb
-          sed -i "/osa-mcp-linux-arm64/{n;s/sha256 \".*\"/sha256 \"$SHA_LINUX_ARM64\"/}" Formula/osa-mcp.rb
-          sed -i "/osa-mcp-linux-x64/{n;s/sha256 \".*\"/sha256 \"$SHA_LINUX_X64\"/}" Formula/osa-mcp.rb
+        run: ruby scripts/bump-formula.rb "${GITHUB_REF_NAME}" release
 
       - name: Commit updated formula
         run: |
