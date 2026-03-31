@@ -1,7 +1,7 @@
 class OsaMcp < Formula
   desc "MCP server that generates tools from macOS scriptable app definitions"
   homepage "https://github.com/MayCXC/osa-mcp"
-  version "0.2.0"
+  version "0.2.2"
   license "BSD-3-Clause"
 
   on_macos do
