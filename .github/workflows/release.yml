@@ -178,39 +178,65 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
 
-      # Homebrew: update formula with SHA256 hashes from release binaries
+      # Homebrew: update formula with SHA256 hashes (same repo, no cross-repo auth needed)
       - name: Update Homebrew formula
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
           node -e "
             const fs = require('fs');
             const crypto = require('crypto');
-            const bins = {
-              'darwin-arm64': 'osa-mcp-darwin-arm64',
-              'darwin-x64': 'osa-mcp-darwin-x64',
-              'linux-arm64': 'osa-mcp-linux-arm64',
-              'linux-x64': 'osa-mcp-linux-x64',
-            };
-            let formula = fs.readFileSync('Formula/osa-mcp.rb', 'utf8');
-            formula = formula.replace(/version \".*\"/, 'version \"' + process.env.VERSION + '\"');
-            for (const [platform, name] of Object.entries(bins)) {
-              const file = fs.readFileSync('release/' + name);
-              const sha = crypto.createHash('sha256').update(file).digest('hex');
-              const urlPattern = new RegExp('(url.*' + name.replace(/-/g, '.') + '.*\\n\\s+sha256 )\"PLACEHOLDER\"');
-              // Also handle already-filled hashes
-              const urlPattern2 = new RegExp('(url.*' + platform.replace(/-/g, '.') + '.*\\n\\s+sha256 )\"[a-f0-9]+\"');
-              formula = formula.replace(urlPattern, '\$1\"' + sha + '\"');
-              formula = formula.replace(urlPattern2, '\$1\"' + sha + '\"');
+            const v = process.env.TAG.replace(/^v/, '');
+            const shas = {};
+            for (const p of ['darwin-arm64','darwin-x64','linux-arm64','linux-x64']) {
+              const file = fs.readFileSync('release/osa-mcp-' + p);
+              shas[p] = crypto.createHash('sha256').update(file).digest('hex');
             }
+            const formula = [
+              'class OsaMcp < Formula',
+              '  desc \"MCP server that generates tools from macOS scriptable app definitions\"',
+              '  homepage \"https://github.com/MayCXC/osa-mcp\"',
+              '  version \"' + v + '\"',
+              '  license \"BSD-3-Clause\"',
+              '',
+              '  on_macos do',
+              '    if Hardware::CPU.arm?',
+              '      url \"https://github.com/MayCXC/osa-mcp/releases/download/v#\\{version}/osa-mcp-darwin-arm64\"',
+              '      sha256 \"' + shas['darwin-arm64'] + '\"',
+              '    else',
+              '      url \"https://github.com/MayCXC/osa-mcp/releases/download/v#\\{version}/osa-mcp-darwin-x64\"',
+              '      sha256 \"' + shas['darwin-x64'] + '\"',
+              '    end',
+              '  end',
+              '',
+              '  on_linux do',
+              '    if Hardware::CPU.arm?',
+              '      url \"https://github.com/MayCXC/osa-mcp/releases/download/v#\\{version}/osa-mcp-linux-arm64\"',
+              '      sha256 \"' + shas['linux-arm64'] + '\"',
+              '    else',
+              '      url \"https://github.com/MayCXC/osa-mcp/releases/download/v#\\{version}/osa-mcp-linux-x64\"',
+              '      sha256 \"' + shas['linux-x64'] + '\"',
+              '    end',
+              '  end',
+              '',
+              '  def install',
+              '    bin.install Dir[\"osa-mcp*\"].first => \"osa-mcp\"',
+              '  end',
+              '',
+              '  test do',
+              '    assert_match \"osa-mcp\", shell_output(\"#\\{bin}/osa-mcp --help 2>&1\", 1)',
+              '  end',
+              'end',
+            ].join('\\n') + '\\n';
             fs.writeFileSync('Formula/osa-mcp.rb', formula);
           "
         env:
-          VERSION: ${{ github.ref_name }}
+          TAG: ${{ github.ref_name }}
 
       - name: Commit updated formula
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/osa-mcp.rb
-          git diff --cached --quiet || git commit -m "update Homebrew formula for ${GITHUB_REF_NAME}"
-          git push origin HEAD:master
+          git diff --cached --quiet || git commit -m "formula: ${GITHUB_REF_NAME}"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
