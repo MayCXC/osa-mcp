@@ -22,7 +22,7 @@ function jxaMethodName(sdefName: string): string {
 
 function sdefTypeToZod(
   type: string,
-  enums: Map<string, string[]>,
+  enums: Map<string, EnumInfo>,
   classes: Map<string, SdefClass>,
   intrinsics: Map<string, IntrinsicType>
 ): z.ZodTypeAny {
@@ -39,21 +39,42 @@ function sdefTypeToZod(
     }
   }
 
-  // Check enums
-  const enumValues = enums.get(type);
-  if (enumValues && enumValues.length > 0) return z.enum(enumValues as [string, ...string[]]);
+  // Check enums (include value descriptions)
+  const enumInfo = enums.get(type);
+  if (enumInfo && enumInfo.values.length > 0) {
+    const e = z.enum(enumInfo.values as [string, ...string[]]);
+    const descs = [...enumInfo.descriptions.entries()];
+    if (descs.length > 0) {
+      return e.describe(descs.map(([k, v]) => `${k}: ${v}`).join(". "));
+    }
+    return e;
+  }
 
   // Check class references
   const cls = classes.get(type);
-  if (cls) return z.string().describe(`${type} specifier`);
+  if (cls) {
+    const desc = cls.description ? `${type}: ${cls.description}` : `${type} specifier`;
+    return z.string().describe(desc);
+  }
 
   // Fallback
   return z.string();
 }
 
-function buildEnumMap(sdef: Sdef): Map<string, string[]> {
-  const map = new Map<string, string[]>();
-  for (const e of sdef.enums) map.set(e.name, e.values.map((v) => v.name));
+interface EnumInfo {
+  values: string[];
+  descriptions: Map<string, string>;
+}
+
+function buildEnumMap(sdef: Sdef): Map<string, EnumInfo> {
+  const map = new Map<string, EnumInfo>();
+  for (const e of sdef.enums) {
+    const descriptions = new Map<string, string>();
+    for (const v of e.values) {
+      if (v.description) descriptions.set(v.name, v.description);
+    }
+    map.set(e.name, { values: e.values.map((v) => v.name), descriptions });
+  }
   return map;
 }
 
@@ -90,7 +111,10 @@ export function registerCommands(
 
     const name = toolName(prefix, cmd.name);
     if (registeredTools.has(name)) continue;
-    const description = `[${appName}] ${cmd.description || cmd.name}`.slice(0, 500);
+    let description = `[${appName}] ${cmd.description || cmd.name}`;
+    if (cmd.result) {
+      description += ` Returns: ${cmd.result.description || cmd.result.type}.`;
+    }
 
     const shape: Record<string, z.ZodTypeAny> = {};
     if (cmd.directParam) {
@@ -146,6 +170,7 @@ export function registerClasses(
   if (appProps.length > 0) {
     const appToolName = toolName(prefix, "get_application");
     if (!registeredTools.has(appToolName)) {
+      const appPropDescs = appProps.map((p) => p.description ? `${p.name} (${p.description})` : p.name);
       const appPropNames = appProps.map((p) => p.name);
       const appChildren = sdef.application.elements.map((e) => e.type);
       const childHint = appChildren.length > 0 ? ` Contains: ${appChildren.join(", ")}.` : "";
@@ -157,9 +182,9 @@ export function registerClasses(
       registeredTools.add(appToolName);
       server.addTool({
         name: appToolName,
-        description: `[${appName}] Get ${appName} application properties.${childHint} Properties: ${appPropNames.join(", ")}`.slice(0, 500),
+        description: `[${appName}] Get ${appName} application properties.${childHint} Properties: ${appPropDescs.join(", ")}`,
         parameters: z.object({
-          properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${appPropNames.join(", ")}`),
+          properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${appPropDescs.join(", ")}`),
         }),
         execute: async (args: Record<string, any>) => {
           try {
@@ -179,9 +204,11 @@ export function registerClasses(
     if (readableProps.length === 0) continue;
 
     const plural = cls.plural || `${cls.name}s`;
+    const propDescs = readableProps.map((p) => p.description ? `${p.name} (${p.description})` : p.name);
     const propNames = readableProps.map((p) => p.name);
     const parents = containment.get(cls.name) ?? [];
     const children = cls.elements.map((e) => e.type);
+    const classDesc = cls.description ? ` ${cls.description}` : "";
     const parentHint = parents.length > 0 ? ` Found inside: ${parents.join(", ")}.` : "";
     const childHint = children.length > 0 ? ` Contains: ${children.join(", ")}.` : "";
 
@@ -199,11 +226,11 @@ export function registerClasses(
     registeredTools.add(getName);
     server.addTool({
       name: listName,
-      description: `[${appName}] List ${plural}.${parentHint}${childHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
+      description: `[${appName}] List ${plural}.${classDesc}${parentHint}${childHint} Properties: ${propDescs.join(", ")}`,
       parameters: z.object({
         limit: z.number().int().optional().describe("Max items (default 25)"),
         parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps: 'key'=property, 0=index, []=call, ['arg']=call with args. e.g. ['inbox'] or ['calendars','byName',['US Holidays']]"),
-        properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propNames.join(", ")}`),
+        properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propDescs.join(", ")}`),
       }),
       execute: async (args: Record<string, any>) => {
         try {
@@ -216,13 +243,13 @@ export function registerClasses(
 
     server.addTool({
       name: getName,
-      description: `[${appName}] Get a ${cls.name} by index or name.${parentHint} Properties: ${propNames.join(", ")}`.slice(0, 500),
+      description: `[${appName}] Get a ${cls.name} by index or name.${classDesc}${parentHint} Properties: ${propDescs.join(", ")}`,
       parameters: z.object({
         index: z.number().int().optional().describe("0-based index"),
         name: z.string().optional().describe("Name to match"),
         id: z.number().int().optional().describe("ID to match"),
         parent: z.array(z.union([z.string(), z.number(), z.array(z.any())])).optional().describe("Parent path steps"),
-        properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propNames.join(", ")}`),
+        properties: z.array(z.string()).optional().describe(`Filter properties. Available: ${propDescs.join(", ")}`),
       }),
       execute: async (args: Record<string, any>) => {
         try {
