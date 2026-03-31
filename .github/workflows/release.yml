@@ -73,23 +73,27 @@ jobs:
         run: |
           mkdir -p npm-pkg
           cp dist/osa-mcp${{ matrix.ext }} npm-pkg/
-          VERSION=${GITHUB_REF_NAME#v}
           node -e "
             const pkg = {
-              name: '${{ matrix.npm }}',
-              version: process.env.VERSION.replace(/^v/, ''),
-              description: 'osa-mcp binary for ${{ matrix.target }}',
+              name: process.env.NPM_NAME,
+              version: process.env.TAG.replace(/^v/, ''),
+              description: 'osa-mcp binary for ' + process.env.TARGET,
               license: 'BSD-3-Clause',
               repository: { type: 'git', url: 'git+https://github.com/MayCXC/osa-mcp.git' },
-              bin: { 'osa-mcp': 'osa-mcp${{ matrix.ext }}' },
-              os: ${{ matrix.os }},
-              cpu: ${{ matrix.cpu }},
-              files: ['osa-mcp${{ matrix.ext }}']
+              bin: { 'osa-mcp': 'osa-mcp' + process.env.EXT },
+              os: JSON.parse(process.env.OS_FIELD),
+              cpu: JSON.parse(process.env.CPU_FIELD),
+              files: ['osa-mcp' + process.env.EXT]
             };
             require('fs').writeFileSync('npm-pkg/package.json', JSON.stringify(pkg, null, 2));
           "
         env:
-          VERSION: ${{ github.ref_name }}
+          TAG: ${{ github.ref_name }}
+          NPM_NAME: ${{ matrix.npm }}
+          TARGET: ${{ matrix.target }}
+          EXT: ${{ matrix.ext }}
+          OS_FIELD: ${{ matrix.os }}
+          CPU_FIELD: ${{ matrix.cpu }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
