@@ -115,6 +115,10 @@ jobs:
         with:
           ref: master
       - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -144,13 +148,6 @@ jobs:
           files: release/*
           generate_release_notes: true
 
-      # npm: setup auth (OIDC provenance if trusted publishers configured, token fallback)
-      - name: Setup npm auth
-        run: |
-          if [ -n "${{ secrets.NPM_TOKEN }}" ]; then
-            echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> ~/.npmrc
-          fi
-
       # npm: publish platform packages
       - name: Publish platform packages to npm
         run: |
@@ -160,6 +157,7 @@ jobs:
             npm publish --access public --provenance
             cd -
           done
+        env:
 
       # npm: publish root package (inject optionalDependencies at publish time)
       - name: Publish root package to npm
