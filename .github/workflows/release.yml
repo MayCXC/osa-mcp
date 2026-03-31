@@ -112,6 +112,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: master
       - uses: oven-sh/setup-bun@v2
 
       - name: Download all artifacts
@@ -181,20 +183,16 @@ jobs:
       # Homebrew: update version and SHA256 hashes in existing formula
       - name: Update Homebrew formula
         run: |
-          node -e "
-            const fs = require('fs');
-            const crypto = require('crypto');
-            const v = process.env.TAG.replace(/^v/, '');
-            let f = fs.readFileSync('Formula/osa-mcp.rb', 'utf8');
-            f = f.replace(/version \".*\"/, 'version \"' + v + '\"');
-            for (const p of ['darwin-arm64','darwin-x64','linux-arm64','linux-x64']) {
-              const sha = crypto.createHash('sha256').update(fs.readFileSync('release/osa-mcp-' + p)).digest('hex');
-              f = f.replace(new RegExp('(osa-mcp-' + p + '.*\\n\\s+sha256 )\"[^\"]*\"'), '\$1\"' + sha + '\"');
-            }
-            fs.writeFileSync('Formula/osa-mcp.rb', f);
-          "
-        env:
-          TAG: ${{ github.ref_name }}
+          VERSION=${GITHUB_REF_NAME#v}
+          SHA_DARWIN_ARM64=$(sha256sum release/osa-mcp-darwin-arm64 | cut -d' ' -f1)
+          SHA_DARWIN_X64=$(sha256sum release/osa-mcp-darwin-x64 | cut -d' ' -f1)
+          SHA_LINUX_ARM64=$(sha256sum release/osa-mcp-linux-arm64 | cut -d' ' -f1)
+          SHA_LINUX_X64=$(sha256sum release/osa-mcp-linux-x64 | cut -d' ' -f1)
+          sed -i "s/version \".*\"/version \"$VERSION\"/" Formula/osa-mcp.rb
+          sed -i "/osa-mcp-darwin-arm64/{n;s/sha256 \".*\"/sha256 \"$SHA_DARWIN_ARM64\"/}" Formula/osa-mcp.rb
+          sed -i "/osa-mcp-darwin-x64/{n;s/sha256 \".*\"/sha256 \"$SHA_DARWIN_X64\"/}" Formula/osa-mcp.rb
+          sed -i "/osa-mcp-linux-arm64/{n;s/sha256 \".*\"/sha256 \"$SHA_LINUX_ARM64\"/}" Formula/osa-mcp.rb
+          sed -i "/osa-mcp-linux-x64/{n;s/sha256 \".*\"/sha256 \"$SHA_LINUX_X64\"/}" Formula/osa-mcp.rb
 
       - name: Commit updated formula
         run: |
