@@ -1,6 +1,6 @@
 {
   "name": "osa-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MCP server that discovers macOS scriptable apps and generates tools from sdef files",
   "type": "module",
   "license": "BSD-3-Clause",
@@ -12,14 +12,14 @@
     "src"
   ],
   "optionalDependencies": {
-    "osa-mcp-darwin-arm64": "0.2.0",
-    "osa-mcp-darwin-x64": "0.2.0",
-    "osa-mcp-linux-x64": "0.2.0",
-    "osa-mcp-linux-arm64": "0.2.0",
-    "osa-mcp-linux-x64-musl": "0.2.0",
-    "osa-mcp-linux-arm64-musl": "0.2.0",
-    "osa-mcp-windows-x64": "0.2.0",
-    "osa-mcp-windows-arm64": "0.2.0"
+    "osa-mcp-darwin-arm64": "0.2.1",
+    "osa-mcp-darwin-x64": "0.2.1",
+    "osa-mcp-linux-x64": "0.2.1",
+    "osa-mcp-linux-arm64": "0.2.1",
+    "osa-mcp-linux-x64-musl": "0.2.1",
+    "osa-mcp-linux-arm64-musl": "0.2.1",
+    "osa-mcp-windows-x64": "0.2.1",
+    "osa-mcp-windows-arm64": "0.2.1"
   },
   "devDependencies": {
     "@types/bun": "latest",
