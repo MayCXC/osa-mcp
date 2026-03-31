@@ -162,18 +162,21 @@ jobs:
       # npm: publish root package (inject optionalDependencies at publish time)
       - name: Publish root package to npm
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          jq ".version = \"$VERSION\" | .optionalDependencies = {
-            \"osa-mcp-darwin-arm64\": \"$VERSION\",
-            \"osa-mcp-darwin-x64\": \"$VERSION\",
-            \"osa-mcp-linux-x64\": \"$VERSION\",
-            \"osa-mcp-linux-arm64\": \"$VERSION\",
-            \"osa-mcp-linux-x64-musl\": \"$VERSION\",
-            \"osa-mcp-linux-arm64-musl\": \"$VERSION\",
-            \"osa-mcp-windows-x64\": \"$VERSION\",
-            \"osa-mcp-windows-arm64\": \"$VERSION\"
-          }" package.json > package.json.tmp && mv package.json.tmp package.json
+          node -e "
+            const fs = require('fs');
+            const v = process.env.TAG.replace(/^v/, '');
+            const pkg = JSON.parse(fs.readFileSync('package.json'));
+            pkg.version = v;
+            pkg.optionalDependencies = Object.fromEntries(
+              ['darwin-arm64','darwin-x64','linux-x64','linux-arm64',
+               'linux-x64-musl','linux-arm64-musl','windows-x64','windows-arm64']
+              .map(p => ['osa-mcp-' + p, v])
+            );
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
           npm publish --access public --provenance
+        env:
+          TAG: ${{ github.ref_name }}
 
       # Homebrew: update formula with SHA256 hashes from release binaries
       - name: Update Homebrew formula
