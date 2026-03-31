@@ -178,55 +178,20 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
 
-      # Homebrew: update formula with SHA256 hashes (same repo, no cross-repo auth needed)
+      # Homebrew: update version and SHA256 hashes in existing formula
       - name: Update Homebrew formula
         run: |
           node -e "
             const fs = require('fs');
             const crypto = require('crypto');
             const v = process.env.TAG.replace(/^v/, '');
-            const shas = {};
+            let f = fs.readFileSync('Formula/osa-mcp.rb', 'utf8');
+            f = f.replace(/version \".*\"/, 'version \"' + v + '\"');
             for (const p of ['darwin-arm64','darwin-x64','linux-arm64','linux-x64']) {
-              const file = fs.readFileSync('release/osa-mcp-' + p);
-              shas[p] = crypto.createHash('sha256').update(file).digest('hex');
+              const sha = crypto.createHash('sha256').update(fs.readFileSync('release/osa-mcp-' + p)).digest('hex');
+              f = f.replace(new RegExp('(osa-mcp-' + p + '.*\\n\\s+sha256 )\"[^\"]*\"'), '\$1\"' + sha + '\"');
             }
-            const formula = [
-              'class OsaMcp < Formula',
-              '  desc \"MCP server that generates tools from macOS scriptable app definitions\"',
-              '  homepage \"https://github.com/MayCXC/osa-mcp\"',
-              '  version \"' + v + '\"',
-              '  license \"BSD-3-Clause\"',
-              '',
-              '  on_macos do',
-              '    if Hardware::CPU.arm?',
-              '      url \"https://github.com/MayCXC/osa-mcp/releases/download/v#\\{version}/osa-mcp-darwin-arm64\"',
-              '      sha256 \"' + shas['darwin-arm64'] + '\"',
-              '    else',
-              '      url \"https://github.com/MayCXC/osa-mcp/releases/download/v#\\{version}/osa-mcp-darwin-x64\"',
-              '      sha256 \"' + shas['darwin-x64'] + '\"',
-              '    end',
-              '  end',
-              '',
-              '  on_linux do',
-              '    if Hardware::CPU.arm?',
-              '      url \"https://github.com/MayCXC/osa-mcp/releases/download/v#\\{version}/osa-mcp-linux-arm64\"',
-              '      sha256 \"' + shas['linux-arm64'] + '\"',
-              '    else',
-              '      url \"https://github.com/MayCXC/osa-mcp/releases/download/v#\\{version}/osa-mcp-linux-x64\"',
-              '      sha256 \"' + shas['linux-x64'] + '\"',
-              '    end',
-              '  end',
-              '',
-              '  def install',
-              '    bin.install Dir[\"osa-mcp*\"].first => \"osa-mcp\"',
-              '  end',
-              '',
-              '  test do',
-              '    assert_match \"osa-mcp\", shell_output(\"#\\{bin}/osa-mcp --help 2>&1\", 1)',
-              '  end',
-              'end',
-            ].join('\\n') + '\\n';
-            fs.writeFileSync('Formula/osa-mcp.rb', formula);
+            fs.writeFileSync('Formula/osa-mcp.rb', f);
           "
         env:
           TAG: ${{ github.ref_name }}
