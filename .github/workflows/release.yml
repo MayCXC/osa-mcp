@@ -74,14 +74,22 @@ jobs:
           mkdir -p npm-pkg
           cp dist/osa-mcp${{ matrix.ext }} npm-pkg/
           VERSION=${GITHUB_REF_NAME#v}
-          cat npm/package.json.tmpl \
-            | sed "s|{{NAME}}|${{ matrix.npm }}|" \
-            | sed "s|{{VERSION}}|$VERSION|" \
-            | sed "s|{{PLATFORM}}|${{ matrix.target }}|" \
-            | sed "s|{{OS}}|${{ matrix.os }}|" \
-            | sed "s|{{CPU}}|${{ matrix.cpu }}|" \
-            | sed "s|{{EXT}}|${{ matrix.ext }}|" \
-            > npm-pkg/package.json
+          node -e "
+            const pkg = {
+              name: '${{ matrix.npm }}',
+              version: process.env.VERSION.replace(/^v/, ''),
+              description: 'osa-mcp binary for ${{ matrix.target }}',
+              license: 'BSD-3-Clause',
+              repository: { type: 'git', url: 'git+https://github.com/MayCXC/osa-mcp.git' },
+              bin: { 'osa-mcp': 'osa-mcp${{ matrix.ext }}' },
+              os: ${{ matrix.os }},
+              cpu: ${{ matrix.cpu }},
+              files: ['osa-mcp${{ matrix.ext }}']
+            };
+            require('fs').writeFileSync('npm-pkg/package.json', JSON.stringify(pkg, null, 2));
+          "
+        env:
+          VERSION: ${{ github.ref_name }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
