@@ -1,6 +1,6 @@
 {
   "name": "osa-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "MCP server that discovers macOS scriptable apps and generates tools from sdef files",
   "type": "module",
   "license": "BSD-3-Clause",
