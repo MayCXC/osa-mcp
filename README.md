@@ -12,6 +12,12 @@ osa-mcp is an MCP server that automatically discovers all scriptable macOS apps 
 claude mcp add my-mac -- npx -y osa-mcp
 ```
 
+### bunx
+
+```sh
+claude mcp add my-mac -- bunx osa-mcp
+```
+
 ### Homebrew
 
 ```sh
