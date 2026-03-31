@@ -53,7 +53,7 @@ For SSH, add `"--ssh", "user@macbook.local"` to the args.
 
 ## What you get
 
-On a typical Mac, osa-mcp generates ~700 tools in ~4 seconds. Every tool includes descriptions pulled from the app's scripting dictionary, so your AI knows what each tool does, what parameters it accepts, and what values are valid.
+On a typical Mac, osa-mcp generates ~700 tools in ~4 seconds. Every tool includes descriptions pulled from the app's scripting dictionary, so your AI knows what each tool does, what parameters it takes, and what values they accept.
 
 **Commands** let your AI perform actions:
 - `mail_send`, `mail_reply`, `mail_forward`
