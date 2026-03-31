@@ -157,7 +157,6 @@ jobs:
             npm publish --access public --provenance
             cd -
           done
-        env:
 
       # npm: publish root package (inject optionalDependencies at publish time)
       - name: Publish root package to npm
