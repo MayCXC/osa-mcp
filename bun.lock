@@ -11,14 +11,14 @@
         "zod": "^4.3.6",
       },
       "optionalDependencies": {
-        "osa-mcp-darwin-arm64": "0.2.0",
-        "osa-mcp-darwin-x64": "0.2.0",
-        "osa-mcp-linux-arm64": "0.2.0",
-        "osa-mcp-linux-arm64-musl": "0.2.0",
-        "osa-mcp-linux-x64": "0.2.0",
-        "osa-mcp-linux-x64-musl": "0.2.0",
-        "osa-mcp-windows-arm64": "0.2.0",
-        "osa-mcp-windows-x64": "0.2.0",
+        "osa-mcp-darwin-arm64": "0.2.1",
+        "osa-mcp-darwin-x64": "0.2.1",
+        "osa-mcp-linux-arm64": "0.2.1",
+        "osa-mcp-linux-arm64-musl": "0.2.1",
+        "osa-mcp-linux-x64": "0.2.1",
+        "osa-mcp-linux-x64-musl": "0.2.1",
+        "osa-mcp-windows-arm64": "0.2.1",
+        "osa-mcp-windows-x64": "0.2.1",
       },
     },
   },
@@ -248,22 +248,6 @@
     "on-finished": ["on-finished@2.4.1", "", { "dependencies": { "ee-first": "1.1.1" } }, "sha512-oVlzkg3ENAhCk2zdv7IJwd/QUD4z2RxRwpkcGY8psCVcCYZNq4wYnVWALHM+brtuJjePWiYF/ClmuDr8Ch5+kg=="],
 
     "once": ["once@1.4.0", "", { "dependencies": { "wrappy": "1" } }, "sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w=="],
-
-    "osa-mcp-darwin-arm64": ["osa-mcp-darwin-arm64@0.2.0", "", { "os": "darwin", "cpu": "arm64", "bin": { "osa-mcp": "osa-mcp" } }, "sha512-qAT3Tesa74pSn98OEcK9rrtutvxeBqwVAjFA/YHHhUQ6y49qyZyOx/XCDXm0xMftC/id+NycqPvcK6DOlQATEg=="],
-
-    "osa-mcp-darwin-x64": ["osa-mcp-darwin-x64@0.2.0", "", { "os": "darwin", "cpu": "x64", "bin": { "osa-mcp": "osa-mcp" } }, "sha512-CFbpLw9eXem9VSQArKFqsnQRnDKD+nkLSqzLxTekHliyrXopOKRZo42mi4EYWeuOTvozDxxW5DCPE7lb0DT8Ng=="],
-
-    "osa-mcp-linux-arm64": ["osa-mcp-linux-arm64@0.2.0", "", { "os": "linux", "cpu": "arm64", "bin": { "osa-mcp": "osa-mcp" } }, "sha512-B2u6uq6rko7FIaTEzdXXjyQ6CM4ST3wrnn1EZtImw9R5rqwv9dYa9kQ3Hm3kN8nINsSHrgC4gU+UEFk8hOqOcg=="],
-
-    "osa-mcp-linux-arm64-musl": ["osa-mcp-linux-arm64-musl@0.2.0", "", { "os": "linux", "cpu": "arm64", "bin": { "osa-mcp": "osa-mcp" } }, "sha512-9GIhyZEvwtmW/NkA38fiyTbAyb+yAIkcOYSn49PUPOB1OcGs9c1YQLQXKQo3990JLMD5K6MTOw+7RNUSFT58IQ=="],
-
-    "osa-mcp-linux-x64": ["osa-mcp-linux-x64@0.2.0", "", { "os": "linux", "cpu": "x64", "bin": { "osa-mcp": "osa-mcp" } }, "sha512-EloEJpdgseK1HWIzci7ckqg+/aEuXnMMcTj7TCrdd8QtT0uYhZ+j5zaCMssBRkSE52eees4sla/95lrJvQPCKQ=="],
-
-    "osa-mcp-linux-x64-musl": ["osa-mcp-linux-x64-musl@0.2.0", "", { "os": "linux", "cpu": "x64", "bin": { "osa-mcp": "osa-mcp" } }, "sha512-KBB6GCJVyJjJZCX6FDSMuMaSNjCjqkXx5n0kbF8SyfX9yliYAdXgL7nekH8zL+yqluOHc+ie66LZtAhH4wqb2Q=="],
-
-    "osa-mcp-windows-arm64": ["osa-mcp-windows-arm64@0.2.0", "", { "os": "win32", "cpu": "arm64", "bin": { "osa-mcp": "osa-mcp.exe" } }, "sha512-GWb/llh7cjKbtSo3NoDr4L7cHZ5/YhRBUej3xM+Xp7F0Od16j8bGEreZmq0G/8Fn74XNdiFnasokWZ3Adbqibw=="],
-
-    "osa-mcp-windows-x64": ["osa-mcp-windows-x64@0.2.0", "", { "os": "win32", "cpu": "x64", "bin": { "osa-mcp": "osa-mcp.exe" } }, "sha512-IfeEsNzfHDUxN0nucAELHODi4NnvtNvfxIqP/SIA4tNr6Vz9+v0PxwhjQYKMfFeZkZv5VFeEjyDVwKHrshfLUw=="],
 
     "parse-ms": ["parse-ms@4.0.0", "", {}, "sha512-TXfryirbmq34y8QBwgqCVLi+8oA3oWx2eAnSn62ITyEhEYaWRlVZ2DvMM9eZbMs/RfxPu/PK/aBLyGj4IrqMHw=="],
 
