@@ -1,26 +1,26 @@
 class OsaMcp < Formula
   desc "MCP server that generates tools from macOS scriptable app definitions"
   homepage "https://github.com/MayCXC/osa-mcp"
-  version "0.2.4"
+  version "0.2.8"
   license "BSD-3-Clause"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/MayCXC/osa-mcp/releases/download/v#{version}/osa-mcp-darwin-arm64"
-      sha256 "605f72369bbc3132e24f957951cf491b897f82c55e7a31ce008e9c656a286c41"
+      sha256 "f158db6f4381de42e7fd57b4fe271840443965c9426cdd9c60390c21c8b4834a"
     else
       url "https://github.com/MayCXC/osa-mcp/releases/download/v#{version}/osa-mcp-darwin-x64"
-      sha256 "3424fdc5bedc352665da689e54ccc994b6828842f69b2d5dedbc52ac529409de"
+      sha256 "53e76391817b16ba654aa56e0920af20cd15ab2d48ac707858ea12d59a5cadbc"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/MayCXC/osa-mcp/releases/download/v#{version}/osa-mcp-linux-arm64"
-      sha256 "477aefe3fd958f960d9365930f1be30896a4048251dba498002613bb7212bf3e"
+      sha256 "0cc717435a37a9b168f6f1323f4ea643225a21cfec9111020f108ab21f145897"
     else
       url "https://github.com/MayCXC/osa-mcp/releases/download/v#{version}/osa-mcp-linux-x64"
-      sha256 "c60854b535f4bd5f24bd9792a1d3e42184295e17ea173452ef61e4c80e0a1b0b"
+      sha256 "6fd06b887904306a510ef02f58323c21fa3f83bc0d211ff633406c2d0cf439cb"
     end
   end
 
