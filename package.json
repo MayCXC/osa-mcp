@@ -8,7 +8,11 @@
     "type": "git",
     "url": "git+https://github.com/MayCXC/osa-mcp.git"
   },
+  "bin": {
+    "osa-mcp": "bin/osa-mcp.js"
+  },
   "files": [
+    "bin",
     "src"
   ],
   "devDependencies": {
