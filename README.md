@@ -2,7 +2,7 @@
 
 *Give your AI access to every scriptable app on your Mac.*
 
-osa-mcp is an MCP server that automatically discovers all scriptable macOS apps (Mail, Calendar, Finder, Music, Notes, Safari, &c.) and generates tools for them. No configuration, no hardcoded app list. Just connect and go.
+osa-mcp is an MCP server that automatically discovers all scriptable macOS apps (Mail, Calendar, Finder, Music, Notes, Safari, &c.) and serves their scripting dictionaries to your AI. No configuration, no hardcoded app list. Just connect and go.
 
 ## What you do
 
@@ -53,43 +53,29 @@ For SSH, add `"--ssh", "user@macbook.local"` to the args.
 
 ## What you get
 
-On a typical Mac, osa-mcp generates ~700 tools in ~4 seconds. Every tool includes descriptions pulled from the app's scripting dictionary, so your AI knows what each tool does, what parameters it takes, and what values they accept.
+osa-mcp loads the scripting dictionary of every scriptable app in a few seconds and serves them all through five tools:
 
-**Commands** let your AI perform actions:
-- `mail_send`, `mail_reply`, `mail_forward`
-- `finder_reveal`, `finder_move`, `finder_duplicate`
-- `music_play`, `music_pause`, `music_search`
-- `calendar_show`, `reminders_show`, `notes_show`
-- `safari_do_javascript`, `safari_search_the_web`
-- `messages_send`, `terminal_do_script`
+- **`dictionary`** browses the dictionaries. With no arguments it lists the apps; with an app, that app's suites, commands and classes, one line each; with an app and a term, the full definition of a command, class or record; with a query, the matching commands, classes and properties in every app.
+- **`command`** runs a command: `{ "app": "Mail", "command": "check for new mail" }`.
+- **`list`** reads the elements of a class with their properties: `{ "app": "Reminders", "class": "reminder" }`.
+- **`get`** reads one element by index, name or id, or with no class, the application's own properties: `{ "app": "Music" }` returns the current track, player state, etc.
+- **`execute`** runs any AppleScript or JXA.
 
-**Lists and gets** let your AI read data:
-- `mail_list_messages`, `mail_get_message`
-- `calendar_list_events`, `calendar_list_calendars`
-- `finder_list_files`, `finder_list_disks`
-- `notes_list_notes`, `reminders_list_reminders`
-- `safari_list_tabs`, `safari_list_documents`
-
-**Application properties** expose app settings:
-- `mail_get_application` returns inbox, fetch interval, primary email, etc.
-- `finder_get_application` returns desktop, trash, home, startup disk, etc.
-- `music_get_application` returns current track, player state, etc.
-
-**Execute** runs arbitrary AppleScript or JXA for anything the generated tools don't cover.
+Your AI looks up only the parts of a dictionary it needs, so osa-mcp stays light in its context however many apps you have. On a Mac with 33 scriptable apps, the tools and the server's instructions take about 350 tokens when the client loads tool definitions on demand, as Claude Code does, and about 2,300 when it loads them all up front.
 
 ## Navigating the object hierarchy
 
-Many tools accept a `parent` parameter for navigating into nested objects:
+`list` and `get` accept a `parent` path for reaching into nested objects:
 
 ```jsonc
-// List events in a specific calendar
-{ "parent": ["calendars", "byName", ["Work"]] }
+// Events in a specific calendar
+{ "app": "Calendar", "class": "event", "parent": ["calendars", "byName", ["Work"]] }
 
-// List messages in the inbox
-{ "parent": ["inbox"] }
+// Messages in the inbox
+{ "app": "Mail", "class": "message", "parent": ["inbox"] }
 
-// Get the first window's current tab
-{ "parent": ["windows", 0] }
+// Tabs of the first window
+{ "app": "Safari", "class": "tab", "parent": ["windows", 0] }
 ```
 
 Path steps: `"key"` accesses a property, `0` accesses by index, `[]` calls a method, `["arg"]` calls with arguments.
