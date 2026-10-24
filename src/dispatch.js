@@ -21,8 +21,8 @@ function loadIntrinsics() {
   const url = $.NSURL.fileURLWithPath(bundle.resourcePath.js + "/intrinsics.sdef");
   const error = $();
   const doc = $.NSXMLDocument.alloc.initWithContentsOfURLOptionsError(url, 0, error);
-  if (!doc || error[0]) return null;
-  return doc.XMLString.js;
+  if (!doc || error[0] || !doc.rootElement) return null;
+  return doc.rootElement.XMLString.js;
 }
 
 function discover() {
@@ -66,7 +66,10 @@ function discover() {
       errors.push({ name: name, error: error[0] ? "" + error[0].localizedDescription : "load failed" });
       continue;
     }
-    const xml = xmlDoc.XMLString;
+    // The dictionary element without the DTD: iWork's DTDs declare
+    // parameter entities, which fast-xml-parser rejects.
+    const root = xmlDoc.rootElement;
+    const xml = root ? root.XMLString : null;
     if (!xml) {
       errors.push({ name: name, error: "XMLString nil" });
       continue;

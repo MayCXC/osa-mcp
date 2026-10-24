@@ -166,6 +166,8 @@ export interface SdefClass {
   description: string;
   inherits?: string;
   plural?: string;
+  /** Defined by a record-type: a value commands take or return, never an element of a container. */
+  record?: boolean;
   properties: SdefProperty[];
   elements: SdefElement[];
 }
@@ -182,8 +184,14 @@ export interface SdefEnum {
   values: SdefEnumValue[];
 }
 
+export interface SdefSuite {
+  name: string;
+  description: string;
+}
+
 export interface Sdef {
   title: string;
+  suites: SdefSuite[];
   commands: SdefCommand[];
   classes: SdefClass[];
   enums: SdefEnum[];
@@ -210,7 +218,7 @@ export function parseIntrinsics(xml: string): Map<string, IntrinsicType> {
     allowBooleanAttributes: true,
     isArray: (name) => [...ARRAY_TAGS, "value-type", "synonym"].includes(name),
   });
-  const raw = intrParser.parse(xml.replace(/<!DOCTYPE[^>]*>[\s\S]*?(?=<dictionary)/, ""));
+  const raw = intrParser.parse(xml);
   const map = new Map<string, IntrinsicType>();
 
   const dict = raw.dictionary;
@@ -284,18 +292,20 @@ function parseSynonyms(node: any): Array<{ name: string; code: string; plural?: 
  *  Follows appscript's parsing logic: deduplication, synonyms,
  *  record-type/value-type as classes, command overlap handling. */
 export function parseSdef(xml: string): Sdef {
-  const raw = xmlParser.parse(xml.replace(/<!DOCTYPE[^>]*>/i, ""));
+  const raw = xmlParser.parse(xml);
   const doc = SdefDocument.parse(raw);
 
   // Deduplication sets (appscript pattern)
   const foundCommands = new Map<string, SdefCommand>();
   const foundClasses = new Map<string, SdefClass>();
 
+  const suites: SdefSuite[] = [];
   const commands: SdefCommand[] = [];
   const enums: SdefEnum[] = [];
 
   for (const suite of doc.dictionary.suite) {
     const suiteName = suite["@_name"];
+    suites.push({ name: suiteName, description: suite["@_description"] });
 
     // Commands and events
     for (const cmd of [...suite.command, ...suite.event]) {
@@ -352,7 +362,11 @@ export function parseSdef(xml: string): Sdef {
 
     // Classes, class-extensions, and record-types
     // Same-name classes across suites are merged (properties + elements combined).
-    for (const cls of [...suite["class"], ...suite["class-extension"], ...(suite["record-type"] ?? [])]) {
+    const definitions = [
+      ...[...suite["class"], ...suite["class-extension"]].map((cls) => ({ cls, record: false })),
+      ...(suite["record-type"] ?? []).map((cls: any) => ({ cls, record: true })),
+    ];
+    for (const { cls, record } of definitions) {
       if (!cls || cls["@_hidden"] === "yes") continue;
       const name = cls["@_name"] ?? cls["@_extends"];
       if (!name) continue;
@@ -404,12 +418,14 @@ export function parseSdef(xml: string): Sdef {
         if (!existing.code && code) existing.code = code;
         if (!existing.inherits && cls["@_inherits"]) existing.inherits = cls["@_inherits"];
         if (!existing.plural && cls["@_plural"]) existing.plural = cls["@_plural"];
+        if (!record) delete existing.record;
       } else {
         const entry: SdefClass = {
           suite: suiteName, name, code,
           description: cls["@_description"] ?? "",
           inherits: cls["@_inherits"] || undefined,
           plural: cls["@_plural"] || undefined,
+          ...(record ? { record: true } : {}),
           properties,
           elements: newElements,
         };
@@ -485,5 +501,5 @@ export function parseSdef(xml: string): Sdef {
     elements: appClass?.elements ?? [],
   };
 
-  return { title: doc.dictionary["@_title"], commands, classes, enums, application };
+  return { title: doc.dictionary["@_title"], suites, commands, classes, enums, application };
 }
