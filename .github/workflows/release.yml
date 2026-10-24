@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # libc picks the Linux variant npm and bun install, as for rollup's packages:
+        # https://bun.com/docs/pm/cli/install#platform-specific-dependencies
         include:
           - target: bun-darwin-arm64
             npm: osa-mcp-darwin-arm64
@@ -33,21 +35,25 @@ jobs:
             npm: osa-mcp-linux-x64
             os: '["linux"]'
             cpu: '["x64"]'
+            libc: '["glibc"]'
             ext: ""
           - target: bun-linux-arm64
             npm: osa-mcp-linux-arm64
             os: '["linux"]'
             cpu: '["arm64"]'
+            libc: '["glibc"]'
             ext: ""
           - target: bun-linux-x64-musl
             npm: osa-mcp-linux-x64-musl
             os: '["linux"]'
             cpu: '["x64"]'
+            libc: '["musl"]'
             ext: ""
           - target: bun-linux-arm64-musl
             npm: osa-mcp-linux-arm64-musl
             os: '["linux"]'
             cpu: '["arm64"]'
+            libc: '["musl"]'
             ext: ""
           - target: bun-windows-x64
             npm: osa-mcp-windows-x64
@@ -83,6 +89,7 @@ jobs:
               bin: { 'osa-mcp': 'osa-mcp' + process.env.EXT },
               os: JSON.parse(process.env.OS_FIELD),
               cpu: JSON.parse(process.env.CPU_FIELD),
+              ...(process.env.LIBC_FIELD ? { libc: JSON.parse(process.env.LIBC_FIELD) } : {}),
               files: ['osa-mcp' + process.env.EXT]
             };
             require('fs').writeFileSync('npm-pkg/package.json', JSON.stringify(pkg, null, 2));
@@ -94,6 +101,7 @@ jobs:
           EXT: ${{ matrix.ext }}
           OS_FIELD: ${{ matrix.os }}
           CPU_FIELD: ${{ matrix.cpu }}
+          LIBC_FIELD: ${{ matrix.libc }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
