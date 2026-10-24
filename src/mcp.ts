@@ -1,91 +1,65 @@
 #!/usr/bin/env bun
 /**
- * osa-mcp: MCP server that generates tools from macOS sdef files.
+ * osa-mcp: MCP server for the scriptable apps on a Mac.
  *
  * Connects to a macOS host (local or via SSH), discovers all scriptable
- * apps via Launch Services, loads their sdefs with XInclude resolution
- * in a single call, and dynamically registers MCP tools.
- *
- * Usage:
- *   osa-mcp                         # local macOS, all apps
- *   osa-mcp --ssh macbook           # remote via SSH config
- *   osa-mcp --ssh user@host         # remote via user@host
- *
- * env OSA_SSH_HOST   SSH host (alternative to --ssh)
+ * apps via Launch Services, and loads their sdefs with XInclude resolution
+ * in a single call. The tools serve those dictionaries: dictionary browses
+ * them, command, list and get run what they define, and execute runs any
+ * JXA or AppleScript.
  */
 
 import { FastMCP } from "fastmcp";
-import { z } from "zod";
-import { parseSdef, parseIntrinsics } from "./sdef.js";
+import pkg from "../package.json" with { type: "json" };
+import { Dictionary, type Discovery } from "./dictionary.js";
 import { Executor } from "./executor.js";
-import { registerCommands, registerClasses } from "./generator.js";
+import { addTools } from "./tools.js";
+
+const usage = `osa-mcp ${pkg.version}: MCP server for the scriptable apps on a Mac
+
+Usage:
+  osa-mcp                    serve the apps of this Mac
+  osa-mcp --ssh macbook      serve a Mac over SSH, by a host from your SSH config
+  osa-mcp --ssh user@host    serve a Mac over SSH, by user and host
+
+Environment:
+  OSA_SSH_HOST               SSH host, in place of --ssh`;
 
 const args = process.argv.slice(2);
 let sshHost = process.env.OSA_SSH_HOST;
 for (let i = 0; i < args.length; i++) {
+  if (args[i] === "--help" || args[i] === "-h") {
+    console.log(usage);
+    process.exit(0);
+  }
   if (args[i] === "--ssh") sshHost = args[++i];
 }
 
 const executor = new Executor({ sshHost });
 
-const server = new FastMCP({
-  name: "osa-mcp",
-  version: "0.1.0",
-});
-
-server.addTool({
-  name: "execute",
-  description: "Execute AppleScript or JXA (JavaScript for Automation) code on the macOS host.",
-  parameters: z.object({
-    code: z.string().describe("Script code to execute"),
-    language: z.enum(["applescript", "jxa"]).optional().describe("Scripting language (default: jxa)"),
-  }),
-  execute: async (args) => {
-    try {
-      return await executor.dispatch("execute", { code: args.code, language: args.language ?? "jxa" });
-    } catch (e: any) {
-      return `Error: ${e.message}`;
-    }
-  },
-});
-
 async function main(): Promise<void> {
   console.error("[osa-mcp] Loading all scriptable apps...");
-  let raw: string;
+  let dictionary: Dictionary | undefined;
   try {
-    raw = await executor.dispatch();
+    dictionary = new Dictionary(JSON.parse(await executor.dispatch()) as Discovery);
   } catch (e: any) {
     console.error(`[osa-mcp] Discovery failed: ${e.message}`);
     console.error("[osa-mcp] Starting with execute tool only.");
-    server.start({ transportType: "stdio" });
-    return;
   }
-  const result = JSON.parse(raw) as {
-    apps: Array<{ name: string; bundleId: string | null; sdef: string }>;
-    errors: Array<{ name: string; error: string }>;
-    intrinsics: string | null;
-  };
-
-  const intrinsics = result.intrinsics ? parseIntrinsics(result.intrinsics) : new Map();
-  console.error(`[osa-mcp] ${intrinsics.size} intrinsic types loaded`);
-
-  console.error(`[osa-mcp] ${result.apps.length} apps loaded`);
-  if (result.errors.length > 0) {
-    for (const e of result.errors) console.error(`  ${e.name}: ${e.error}`);
-  }
-
-  for (const app of result.apps) {
-    try {
-      const sdef = parseSdef(app.sdef);
-      const appId = app.bundleId ?? app.name;
-      registerCommands(server, sdef, app.name, appId, executor, intrinsics);
-      registerClasses(server, sdef, app.name, appId, executor, intrinsics);
-      console.error(`  ${app.name}: ${sdef.commands.length} commands, ${sdef.classes.length} classes`);
-    } catch (e: any) {
-      console.error(`  ${app.name}: failed (${e.message})`);
+  if (dictionary) {
+    console.error(`[osa-mcp] ${dictionary.apps.length} apps loaded`);
+    for (const app of dictionary.apps) {
+      console.error(`  ${app.name}: ${app.sdef.commands.length} commands, ${app.sdef.classes.length} classes`);
     }
+    for (const e of dictionary.errors) console.error(`  ${e.name}: ${e.error}`);
   }
 
+  const server = new FastMCP({
+    name: "osa-mcp",
+    version: pkg.version as `${number}.${number}.${number}`,
+    instructions: dictionary?.instructions() ?? "execute runs JXA or AppleScript on the Mac; its scriptable apps could not be discovered.",
+  });
+  addTools(server, executor, dictionary);
   server.start({ transportType: "stdio" });
 }
 
