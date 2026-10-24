@@ -53,32 +53,28 @@ For SSH, add `"--ssh", "user@macbook.local"` to the args.
 
 ## What you get
 
-osa-mcp loads the scripting dictionary of every scriptable app in a few seconds and serves them all through five tools:
+osa-mcp serves every scriptable app on your Mac through two tools:
 
-- **`dictionary`** browses the dictionaries. With no arguments it lists the apps; with an app, that app's suites, commands and classes, one line each; with an app and a term, the full definition of a command, class or record; with a query, the matching commands, classes and properties in every app.
-- **`command`** runs a command: `{ "app": "Mail", "command": "check for new mail" }`.
-- **`list`** reads the elements of a class with their properties: `{ "app": "Reminders", "class": "reminder" }`.
-- **`get`** reads one element by index, name or id, or with no class, the application's own properties: `{ "app": "Music" }` returns the current track, player state, etc.
-- **`execute`** runs any AppleScript or JXA.
+- **`search`** runs JavaScript over the scripting dictionaries of all the apps, which it reads from your Mac on every search, so apps you install, update or remove show up without a restart. Your AI writes an async arrow function over `apps`, where each app has the commands, classes, record types, value types and enumerations its dictionary defines.
+- **`execute`** runs JXA or AppleScript on your Mac. A string result comes back as it is, and any other value as source text, so lists, records and object references stay whole.
 
-Your AI looks up only the parts of a dictionary it needs, so osa-mcp stays light in its context however many apps you have. On a Mac with 33 scriptable apps, the tools and the server's instructions take about 350 tokens when the client loads tool definitions on demand, as Claude Code does, and about 2,300 when it loads them all up front.
+Your AI reads only what its code selects, so osa-mcp stays light in its context however many apps you have. On a Mac with 33 scriptable apps, the two tools take 21 tokens when the client loads tool definitions on demand, as Claude Code does, and about 2,100 when it loads them all up front.
 
-## Navigating the object hierarchy
+## Examples
 
-`list` and `get` accept a `parent` path for reaching into nested objects:
+A search for the Mail commands whose descriptions mention a mailbox:
 
-```jsonc
-// Events in a specific calendar
-{ "app": "Calendar", "class": "event", "parent": ["calendars", "byName", ["Work"]] }
-
-// Messages in the inbox
-{ "app": "Mail", "class": "message", "parent": ["inbox"] }
-
-// Tabs of the first window
-{ "app": "Safari", "class": "tab", "parent": ["windows", 0] }
+```js
+async () => apps.find(a => a.name === 'Mail').commands
+  .filter(c => c.description.toLowerCase().includes('mailbox'))
+  .map(c => c.name)
 ```
 
-Path steps: `"key"` accesses a property, `0` accesses by index, `[]` calls a method, `["arg"]` calls with arguments.
+A JXA script for the names of the disks Finder sees:
+
+```js
+Application("Finder").disks.name()
+```
 
 ## Install from source
 
