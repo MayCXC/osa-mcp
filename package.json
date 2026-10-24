@@ -9,11 +9,10 @@
     "url": "git+https://github.com/MayCXC/osa-mcp.git"
   },
   "bin": {
-    "osa-mcp": "bin/osa-mcp.js"
+    "osa-mcp": "bin/osa-mcp.cjs"
   },
   "files": [
-    "bin",
-    "src"
+    "bin"
   ],
   "devDependencies": {
     "@modelcontextprotocol/server": "2.3.1",

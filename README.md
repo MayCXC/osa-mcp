@@ -86,8 +86,7 @@ Path steps: `"key"` accesses a property, `0` accesses by index, `[]` calls a met
 git clone https://github.com/MayCXC/osa-mcp.git
 cd osa-mcp
 bun install
-bun link
-claude mcp add my-mac -- osa-mcp
+claude mcp add my-mac -- bun "$PWD/src/mcp.ts"
 ```
 
 Requires [Bun](https://bun.sh).
