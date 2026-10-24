@@ -11,7 +11,7 @@ permissions:
   id-token: write
 
 env:
-  BUN_COMPILE_FLAGS: --compile --minify --bytecode --external effect --external sury --external '@valibot/to-json-schema'
+  BUN_COMPILE_FLAGS: --compile --minify --bytecode
 
 jobs:
   build:

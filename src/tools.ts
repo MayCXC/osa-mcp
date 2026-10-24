@@ -1,112 +1,195 @@
 /**
- * tools.ts: The MCP tools.
+ * tools.ts: The MCP tools, search and execute.
  *
- * execute runs any JXA or AppleScript. With a dictionary, dictionary
- * browses every app's sdef at the level of detail its arguments ask for,
- * and command, list and get resolve an app and a term by name and run
- * them through dispatch.js, so the tool list stays the same size however
- * many apps there are: progressive disclosure, a search tool with a
- * detail level, as in
- * https://www.anthropic.com/engineering/code-execution-with-mcp
+ * Cloudflare's API server serves its API in two tools the same way: search
+ * runs code over the spec, and execute runs code against the API:
+ * https://github.com/cloudflare/mcp/blob/550e1be82b2227818e6b98fc32a313a59403ae3f/src/tools/search.ts
+ * https://github.com/cloudflare/mcp/blob/550e1be82b2227818e6b98fc32a313a59403ae3f/src/tools/execute.ts
+ * Here the spec is the apps' scripting dictionaries, read from the Mac on
+ * every search, and the code execute runs is JXA or AppleScript.
  */
 
-import type { FastMCP } from "fastmcp";
+import type { McpServer, RegisteredTool } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import type { Dictionary, Dispatch } from "./dictionary.js";
+import type { App, Dictionaries } from "./dictionaries.js";
 import type { Executor } from "./executor.js";
+import { runSearch } from "./sandbox.js";
 
-const app = z.string().describe("App name or bundle id, e.g. Mail");
+/** A tool's failure, as the model reads it:
+ *  https://github.com/cloudflare/mcp/blob/550e1be82b2227818e6b98fc32a313a59403ae3f/src/utils/errors.ts */
+function formatError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return { content: [{ type: "text" as const, text: `Error: ${message}` }], isError: true };
+}
 
-const parent = z
-  .array(z.union([z.string(), z.number(), z.array(z.any())]))
-  .optional()
-  .describe(
-    "Path from the application to the container: 'key' reads a property, 0 indexes, [] calls, ['arg'] calls with arguments. e.g. ['inbox'] or ['calendars','byName',['US Holidays']]",
-  );
+/** A string as it is, any other value as JSON. */
+function formatResult(content: unknown): string {
+  if (typeof content === "string") return content;
+  return JSON.stringify(content, null, 2) ?? String(content);
+}
 
-const properties = z.array(z.string()).optional().describe("Properties to read, by the names the dictionary gives (default: all readable ones)");
+/** The apps' dictionaries as search code sees them, from sdef.ts and dictionaries.ts. */
+const TYPES = `
+interface Parameter { name: string; code: string; type: string; description: string; optional: boolean; synonyms?: string[] }
 
-export function addTools(server: FastMCP, executor: Executor, dictionary?: Dictionary): void {
-  async function run({ op, data }: Dispatch): Promise<string> {
-    try {
-      return await executor.dispatch(op, data);
-    } catch (e: any) {
-      return `Error: ${e.message}`;
+interface Command {
+  suite: string;
+  name: string;
+  code: string;
+  description: string;
+  synonyms?: string[];
+  directParameter?: { type: string; description: string; optional: boolean };
+  parameters: Parameter[];
+  result?: { type: string; description: string };
+}
+
+interface Property { name: string; code: string; type: string; description: string; access: "r" | "w" | "rw"; synonyms?: string[] }
+
+interface Class {
+  suite: string;
+  name: string;
+  code: string;
+  description: string;
+  plural?: string; // when it is not the name with an s
+  inherits?: string; // the class whose properties and elements it also has
+  synonyms?: string[];
+  properties: Property[];
+  elements: Array<{ type: string; access: "r" | "w" | "rw" }>; // the classes it contains
+}
+
+interface RecordType { suite: string; name: string; code: string; description: string; synonyms?: string[]; properties: Property[] }
+
+interface Enumeration {
+  suite: string;
+  name: string;
+  code: string;
+  enumerators: Array<{ name: string; code: string; description: string; synonyms?: string[] }>;
+}
+
+interface App {
+  name: string;
+  bundleId: string | null;
+  path: string;
+  title: string;
+  suites: Array<{ name: string; description: string }>;
+  commands: Command[];
+  classes: Class[]; // the application class among them
+  recordTypes: RecordType[];
+  valueTypes: Array<{ suite: string; name: string; code: string; synonyms?: string[] }>;
+  enumerations: Enumeration[];
+}
+
+declare const apps: App[];
+`;
+
+function searchDescription(apps: App[]): string {
+  return `Search the AppleScript dictionaries of the scriptable apps on the Mac, read from it on every search.
+
+Apps: ${[...new Set(apps.map((a) => a.name))].join(", ")}
+
+Types:
+${TYPES}
+Examples:
+
+// Find commands by a word in their description
+async () => {
+  const results = [];
+  for (const app of apps) {
+    for (const command of app.commands) {
+      if (command.description.toLowerCase().includes('mailbox')) {
+        results.push({ app: app.name, command: command.name, description: command.description });
+      }
     }
   }
+  return results;
+}
 
-  server.addTool({
-    name: "execute",
-    description: "Execute AppleScript or JXA (JavaScript for Automation) code on the macOS host.",
-    parameters: z.object({
-      code: z.string().describe("Script code to execute"),
-      language: z.enum(["applescript", "jxa"]).optional().describe("Scripting language (default: jxa)"),
-    }),
-    execute: async (args) => {
+// Get a command with its parameters
+async () => {
+  const mail = apps.find(a => a.name === 'Mail');
+  return mail.commands.find(c => c.name === 'send');
+}
+
+// Get a class's properties, with those it inherits
+async () => {
+  const finder = apps.find(a => a.name === 'Finder');
+  const lineage = [];
+  for (let cls = finder.classes.find(c => c.name === 'file'); cls; cls = finder.classes.find(c => c.name === cls.inherits)) {
+    lineage.push({ class: cls.name, properties: cls.properties.map(p => p.name) });
+  }
+  return lineage;
+}`;
+}
+
+/** search: code over the apps' dictionaries, after reading them from the Mac. */
+export function registerSearchTool(server: McpServer, dictionaries: Dictionaries, apps: App[]): void {
+  const tool: RegisteredTool = server.registerTool(
+    "search",
+    {
+      title: "Scripting Dictionary Search",
+      description: searchDescription(apps),
+      inputSchema: z.object({
+        code: z.string().describe("JavaScript async arrow function to search the dictionaries"),
+      }),
+      annotations: {
+        title: "Scripting Dictionary Search",
+        readOnlyHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ code }, ctx) => {
       try {
-        return await executor.dispatch("execute", { code: args.code, language: args.language ?? "jxa" });
-      } catch (e: any) {
-        return `Error: ${e.message}`;
+        // The SDK aborts the signal when the client cancels the call:
+        // docs/servers/logging-progress-cancellation.md, "Pass the signal to your own I/O".
+        const { apps, changed } = await dictionaries.load(ctx.mcpReq.signal);
+        // The apps the description names change with the Mac's; the handle
+        // tells the client: docs/servers/notifications.md, "Let registration
+        // changes notify for you", in the TypeScript SDK.
+        if (changed) tool.update({ description: searchDescription(apps) });
+        return { content: [{ type: "text", text: formatResult(await runSearch(code, apps)) }] };
+      } catch (error) {
+        return formatError(error);
       }
     },
-  });
+  );
+}
 
-  if (!dictionary) return;
+/** How JXA spells an app's dictionary:
+ *  https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html */
+const EXECUTE_DESCRIPTION = `Execute JXA (JavaScript for Automation) or AppleScript code on the Mac, which can read and change whatever its scriptable apps expose. First use the 'search' tool to find the right commands, classes and properties, then write code using them.
 
-  server.addTool({
-    name: "dictionary",
-    description:
-      "Browse the scripting dictionaries of the Mac's scriptable apps. No arguments: the apps. app: that app's suites, " +
-      "with one line per command and class. app and term: the full definition of a command, class or enumeration " +
-      "(parameters, properties, where it is found). query: commands, classes and properties matching every word, in every app or in app.",
-    annotations: { readOnlyHint: true },
-    parameters: z.object({
-      app: app.optional(),
-      term: z.string().optional().describe("A command, class or enumeration name"),
-      query: z.string().optional().describe("Words to find in names and descriptions"),
-    }),
-    execute: async ({ app, term, query }) => dictionary.browse(app, term, query),
-  });
+In JXA, Application(name) is an app by its name, bundle id or path, and its dictionary's terms are camelCased: a property is read by calling it (Application("Mail").inbox.messages[0].subject()), elements are reached by the plural of their class (Application("Mail").accounts), and a command takes its direct parameter first and its named parameters in an object.
 
-  server.addTool({
-    name: "command",
-    description: "Run a command from an app's scripting dictionary. dictionary with the app and command gives its target and parameters.",
-    parameters: z.object({
-      app,
-      command: z.string().describe("Command name, e.g. check for new mail"),
-      target: z.unknown().optional().describe("The command's direct parameter"),
-      parameters: z.record(z.string(), z.unknown()).optional().describe("Named parameters, keyed by the names the dictionary gives"),
-    }),
-    execute: async (args) => run(dictionary.app(args.app).command(args.command, args.target, args.parameters ?? {})),
-  });
+The result is the value of the code's last expression: a string as it is, any other value as source text, which keeps lists, records and object specifiers whole.
 
-  server.addTool({
-    name: "list",
-    description: "List the elements of a class with their properties: an app's top-level ones, or those inside the object at parent.",
-    annotations: { readOnlyHint: true },
-    parameters: z.object({
-      app,
-      class: z.string().describe("Class name or plural, e.g. message"),
-      parent,
-      properties,
-      limit: z.number().int().optional().describe("Max items (default 25)"),
-    }),
-    execute: async ({ app, class: name, ...values }) => run(dictionary.app(app).list(name, values)),
-  });
+Example:
+Application("Mail").accounts.name()`;
 
-  server.addTool({
-    name: "get",
-    description: "Get one element of a class by index, name or id, with its properties. With no class, the application's own properties.",
-    annotations: { readOnlyHint: true },
-    parameters: z.object({
-      app,
-      class: z.string().optional().describe("Class name or plural, e.g. message"),
-      index: z.number().int().optional().describe("0-based index"),
-      name: z.string().optional().describe("Name to match"),
-      id: z.union([z.number().int(), z.string()]).optional().describe("ID to match"),
-      parent,
-      properties,
-    }),
-    execute: async ({ app, class: name, ...values }) => run(dictionary.app(app).get(name, values)),
-  });
+/** execute: JXA or AppleScript on the Mac. */
+export function registerExecuteTool(server: McpServer, executor: Executor): void {
+  server.registerTool(
+    "execute",
+    {
+      title: "Script Executor",
+      description: EXECUTE_DESCRIPTION,
+      inputSchema: z.object({
+        code: z.string().describe("Script code to execute"),
+        language: z.enum(["applescript", "jxa"]).optional().describe("Scripting language (default: jxa)"),
+      }),
+      annotations: {
+        title: "Script Executor",
+        readOnlyHint: false,
+        openWorldHint: true,
+        destructiveHint: true,
+      },
+    },
+    async ({ code, language }, ctx) => {
+      try {
+        const output = await executor.dispatch("execute", { code, language: language ?? "jxa" }, { signal: ctx.mcpReq.signal });
+        return { content: [{ type: "text", text: output }] };
+      } catch (error) {
+        return formatError(error);
+      }
+    },
+  );
 }

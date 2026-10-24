@@ -2,18 +2,18 @@
 /**
  * osa-mcp: MCP server for the scriptable apps on a Mac.
  *
- * Connects to a macOS host (local or via SSH), discovers all scriptable
- * apps via Launch Services, and loads their sdefs with XInclude resolution
- * in a single call. The tools serve those dictionaries: dictionary browses
- * them, command, list and get run what they define, and execute runs any
- * JXA or AppleScript.
+ * Connects to a macOS host (local or via SSH) and serves its scriptable apps
+ * through two tools: search runs code over the apps' AppleScript
+ * dictionaries, which it reads from the Mac on every search, and execute runs
+ * JXA or AppleScript there.
  */
 
-import { FastMCP } from "fastmcp";
+import { McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import pkg from "../package.json" with { type: "json" };
-import { Dictionary, type Discovery } from "./dictionary.js";
+import { Dictionaries, type App } from "./dictionaries.js";
 import { Executor } from "./executor.js";
-import { addTools } from "./tools.js";
+import { registerExecuteTool, registerSearchTool } from "./tools.js";
 
 const usage = `osa-mcp ${pkg.version}: MCP server for the scriptable apps on a Mac
 
@@ -36,31 +36,21 @@ for (let i = 0; i < args.length; i++) {
 }
 
 const executor = new Executor({ sshHost });
+const dictionaries = new Dictionaries(executor);
 
-async function main(): Promise<void> {
-  console.error("[osa-mcp] Loading all scriptable apps...");
-  let dictionary: Dictionary | undefined;
+/** The server for the connection, its search tool naming the apps found as it starts. */
+async function createServer(): Promise<McpServer> {
+  let apps: App[] = [];
   try {
-    dictionary = new Dictionary(JSON.parse(await executor.dispatch()) as Discovery);
-  } catch (e: any) {
-    console.error(`[osa-mcp] Discovery failed: ${e.message}`);
-    console.error("[osa-mcp] Starting with execute tool only.");
+    apps = (await dictionaries.load()).apps;
+  } catch (e) {
+    console.error(`[osa-mcp] Discovery failed: ${e instanceof Error ? e.message : String(e)}`);
   }
-  if (dictionary) {
-    console.error(`[osa-mcp] ${dictionary.apps.length} apps loaded`);
-    for (const app of dictionary.apps) {
-      console.error(`  ${app.name}: ${app.sdef.commands.length} commands, ${app.sdef.classes.length} classes`);
-    }
-    for (const e of dictionary.errors) console.error(`  ${e.name}: ${e.error}`);
-  }
-
-  const server = new FastMCP({
-    name: "osa-mcp",
-    version: pkg.version as `${number}.${number}.${number}`,
-    instructions: dictionary?.instructions() ?? "execute runs JXA or AppleScript on the Mac; its scriptable apps could not be discovered.",
-  });
-  addTools(server, executor, dictionary);
-  server.start({ transportType: "stdio" });
+  const server = new McpServer({ name: "osa-mcp", version: pkg.version });
+  registerSearchTool(server, dictionaries, apps);
+  registerExecuteTool(server, executor);
+  return server;
 }
 
-main();
+serveStdio(createServer);
+console.error("[osa-mcp] serving on stdio");

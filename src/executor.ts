@@ -2,7 +2,7 @@
  * executor.ts: Run operations on a macOS host via dispatch.js.
  *
  * All operations go through a single JXA script (dispatch.js) that
- * handles discovery, commands, list/get, and arbitrary execution.
+ * handles discovery and execution.
  * User data is base64-encoded and passed as argv, never interpolated.
  * No timeout: if Claude Code kills the tool, the process tree dies.
  */
@@ -32,10 +32,11 @@ process.on("SIGINT", killChildren);
 process.stdin.on("end", killChildren);
 process.stdin.on("close", killChildren);
 
-function runProcess(cmd: string, args: string[], stdin?: string): Promise<ExecResult> {
+function runProcess(cmd: string, args: string[], stdin?: string, signal?: AbortSignal): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args, {
       stdio: [stdin !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
+      ...(signal ? { signal } : {}),
     });
     children.add(proc);
     let stdout = "";
@@ -70,8 +71,9 @@ export class Executor {
     return !!this.sshHost;
   }
 
-  /** Call dispatch.js. No args = discover. Otherwise op + data, all base64. */
-  async dispatch(op?: string, data?: unknown): Promise<string> {
+  /** Call dispatch.js. No args = discover. Otherwise op + data, all base64.
+   *  An aborted signal kills the process. */
+  async dispatch(op?: string, data?: unknown, { signal }: { signal?: AbortSignal | undefined } = {}): Promise<string> {
     const b64 = (v: unknown) => Buffer.from(typeof v === "string" ? v : JSON.stringify(v)).toString("base64");
     const args = op ? (data !== undefined ? [b64(op), b64(data)] : [b64(op)]) : [];
 
@@ -79,7 +81,7 @@ export class Executor {
     const cmd = this.isRemote
       ? { bin: "ssh", args: [this.sshHost!, "osascript", ...osascript] }
       : { bin: "osascript", args: osascript };
-    const result = await runProcess(cmd.bin, cmd.args, dispatchScript);
+    const result = await runProcess(cmd.bin, cmd.args, dispatchScript, signal);
 
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || `osascript exited with code ${result.exitCode}`);
