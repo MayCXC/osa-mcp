@@ -12,9 +12,9 @@
     "src"
   ],
   "devDependencies": {
-    "@types/bun": "latest",
-    "fast-xml-parser": "^5.5.9",
-    "fastmcp": "^3.34.0",
-    "zod": "^4.3.6"
+    "@types/bun": "1.4.2",
+    "fast-xml-parser": "5.11.2",
+    "fastmcp": "4.22.4",
+    "zod": "4.6.5"
   }
 }
