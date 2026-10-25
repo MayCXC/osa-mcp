@@ -155,11 +155,15 @@ jobs:
           files: release/*
           generate_release_notes: true
 
-      # npm: publish platform packages
+      # npm: publish platform packages. Artifacts lose their file modes, so the
+      # binary is made executable again before packing, as Biome's
+      # generate-packages.mjs does after downloading its artifacts:
+      # https://github.com/biomejs/biome/blob/39013928152a4b2329b166e9db682a433e3713c0/packages/%40biomejs/biome/scripts/generate-packages.mjs#L67-L68
       - name: Publish platform packages to npm
         run: |
           for dir in artifacts/npm-osa-mcp-*; do
             echo "Publishing $(basename $dir)..."
+            chmod 755 "$dir"/osa-mcp*
             cd "$dir"
             npm publish --access public --provenance
             cd -
