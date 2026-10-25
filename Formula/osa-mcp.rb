@@ -1,26 +1,26 @@
 class OsaMcp < Formula
   desc "MCP server for the AppleScript dictionaries of scriptable macOS apps"
   homepage "https://github.com/MayCXC/osa-mcp"
-  version "0.4.0"
+  version "0.4.1"
   license "BSD-3-Clause"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/MayCXC/osa-mcp/releases/download/v#{version}/osa-mcp-darwin-arm64"
-      sha256 "e919f5d274d2530e61a3f7724a347affb7fc5ef57de695c7e0424e1c56b236c9"
+      sha256 "e4f832d681ac12b6bdc93552514d1b9c67fb6d559cee99d9e1b776fa950ac390"
     else
       url "https://github.com/MayCXC/osa-mcp/releases/download/v#{version}/osa-mcp-darwin-x64"
-      sha256 "4dc55f35370c90489d3244ebd82e01fcf73ba370f7345ed598f1b89e2fa5a8c9"
+      sha256 "4f726eb8c464455a5f863bf8458a5e934bdf8a6799edaa5605c79402474d5f90"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/MayCXC/osa-mcp/releases/download/v#{version}/osa-mcp-linux-arm64"
-      sha256 "325c2787c31c3d87098f50cbcb7a097e6d6c612b1e2d311ed32b0439ef738290"
+      sha256 "f60d358dea69f53ffa3f88f924b668efd7eb530e3ba4c02e6cd97911d966b78a"
     else
       url "https://github.com/MayCXC/osa-mcp/releases/download/v#{version}/osa-mcp-linux-x64"
-      sha256 "77750359b039b7a1c4da4410a85b974e1534244f2c88c4cc3e3e5e4195fc6639"
+      sha256 "83f37d5da060d16ef5858e8cde6f7404ac63d90e0bf0e07a6eea37cca5bc1cf0"
     end
   end
 
