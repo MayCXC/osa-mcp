@@ -86,7 +86,6 @@ jobs:
               description: 'osa-mcp binary for ' + process.env.TARGET,
               license: 'BSD-3-Clause',
               repository: { type: 'git', url: 'git+https://github.com/MayCXC/osa-mcp.git' },
-              bin: { 'osa-mcp': 'osa-mcp' + process.env.EXT },
               os: JSON.parse(process.env.OS_FIELD),
               cpu: JSON.parse(process.env.CPU_FIELD),
               ...(process.env.LIBC_FIELD ? { libc: JSON.parse(process.env.LIBC_FIELD) } : {}),
